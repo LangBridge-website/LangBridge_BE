@@ -1,6 +1,7 @@
 package com.project.Transflow.config;
 
 import com.project.Transflow.auth.filter.JwtAuthenticationFilter;
+import com.project.Transflow.auth.handler.OAuth2LoginSuccessHandler;
 import com.project.Transflow.user.service.CustomOAuth2UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
@@ -24,6 +25,7 @@ public class SecurityConfig {
 
     private final CustomOAuth2UserService customOAuth2UserService;
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final OAuth2LoginSuccessHandler oAuth2LoginSuccessHandler;
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
@@ -43,7 +45,7 @@ public class SecurityConfig {
                 .userInfoEndpoint()
                     .userService(customOAuth2UserService)
                 .and()
-                .defaultSuccessUrl("/api/auth/login/success", true)
+                .successHandler(oAuth2LoginSuccessHandler)
                 .failureUrl("/api/auth/login/failure");
 
         return http.build();

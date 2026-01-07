@@ -6,8 +6,6 @@ import com.project.Transflow.auth.util.JwtUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
@@ -24,8 +22,14 @@ public class AuthController {
     private final JwtUtil jwtUtil;
 
     @GetMapping("/login/success")
-    public ResponseEntity<Map<String, Object>> loginSuccess(@AuthenticationPrincipal OAuth2User oauth2User) {
-        String email = oauth2User.getAttribute("email");
+    public ResponseEntity<Map<String, Object>> loginSuccess(
+            @RequestParam(required = false) String token,
+            @RequestParam(required = false) String email) {
+        
+        if (token == null || email == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Missing token or email"));
+        }
+        
         Optional<User> userOpt = userRepository.findByEmail(email);
 
         if (userOpt.isEmpty()) {
@@ -33,7 +37,6 @@ public class AuthController {
         }
 
         User user = userOpt.get();
-        String token = jwtUtil.generateToken(user.getEmail(), user.getId(), user.getRoleLevel());
 
         Map<String, Object> response = new HashMap<>();
         response.put("success", true);

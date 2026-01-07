@@ -1,6 +1,5 @@
 package com.project.Transflow.user.controller;
 
-import com.project.Transflow.user.entity.User;
 import com.project.Transflow.user.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

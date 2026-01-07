@@ -40,6 +40,9 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         String email = (String) attributes.get("email");
         String name = (String) attributes.get("name");
         String googleId = (String) attributes.get("sub");
+        if (googleId == null) {
+            googleId = oauth2User.getName(); // sub가 없으면 name 사용
+        }
         String profileImage = (String) attributes.get("picture");
 
         // 사용자 생성 또는 업데이트
@@ -53,10 +56,13 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
             role = "ROLE_ADMIN";
         }
 
+        // userNameAttributeName 결정 (sub가 있으면 sub, 없으면 name)
+        String userNameAttributeName = attributes.containsKey("sub") ? "sub" : "name";
+
         return new DefaultOAuth2User(
             Collections.singleton(new SimpleGrantedAuthority(role)),
             attributes,
-            "sub"
+            userNameAttributeName
         );
     }
 
