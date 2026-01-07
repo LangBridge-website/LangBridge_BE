@@ -1,0 +1,65 @@
+spring:
+  application:
+    name: TransFlow
+
+  # 데이터베이스 설정
+  datasource:
+    url: jdbc:mariadb://localhost:3306/transflow?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Seoul
+    username: root
+    password: 
+    driver-class-name: org.mariadb.jdbc.Driver
+
+  # JPA 설정
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.MariaDBDialect
+    open-in-view: false
+
+  # OAuth2 클라이언트 설정
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: ${GOOGLE_CLIENT_ID:your-google-client-id}
+            client-secret: ${GOOGLE_CLIENT_SECRET:your-google-client-secret}
+            scope:
+              - email
+              - profile
+            redirect-uri: ${GOOGLE_REDIRECT_URI:http://localhost:8080/login/oauth2/code/google}
+        provider:
+          google:
+            authorization-uri: https://accounts.google.com/o/oauth2/v2/auth
+            token-uri: https://oauth2.googleapis.com/token
+            user-info-uri: https://www.googleapis.com/oauth2/v2/userinfo
+            user-name-attribute: sub
+
+# JWT 설정
+jwt:
+  secret: ${JWT_SECRET:transflow-secret-key-for-jwt-token-generation-minimum-256-bits}
+  expiration: 86400000 # 24시간 (밀리초)
+
+# 서버 설정
+server:
+  port: 8080
+  servlet:
+    context-path: /
+
+# Swagger 설정
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+# 로깅 설정
+logging:
+  level:
+    com.project.Transflow: DEBUG
+    org.springframework.security: DEBUG
+
