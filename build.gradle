@@ -72,6 +72,8 @@ dependencies {
     //zip파일
     implementation 'org.apache.commons:commons-compress:1.21'
 
+    // Jsoup for web crawling (추가)
+    implementation 'org.jsoup:jsoup:1.17.2'
 }
 
 tasks.named('test') {
