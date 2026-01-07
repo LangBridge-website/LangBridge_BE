@@ -36,17 +36,26 @@ public class SecurityConfig {
             .sessionManagement()
                 .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
             .and()
+            // 개발 단계: 모든 요청 허용 (인증 체크 비활성화)
             .authorizeRequests()
-                .antMatchers("/", "/login", "/oauth2/**", "/error", "/swagger-ui/**", "/v3/api-docs/**", "/api/auth/**").permitAll()
-                .anyRequest().authenticated()
+                .anyRequest().permitAll()
             .and()
-            .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+            // OAuth2 로그인 설정은 유지 (OAuth2 엔드포인트 작동을 위해 필요)
             .oauth2Login()
                 .userInfoEndpoint()
                     .userService(customOAuth2UserService)
                 .and()
                 .successHandler(oAuth2LoginSuccessHandler)
                 .failureUrl("/api/auth/login/failure");
+            
+            // 프로덕션 단계: 아래 주석 해제하고 위의 permitAll()을 authenticated()로 변경
+            /*
+            .authorizeRequests()
+                .antMatchers("/", "/login", "/oauth2/**", "/error", "/swagger-ui/**", "/v3/api-docs/**", "/api/auth/**").permitAll()
+                .anyRequest().authenticated()
+            .and()
+            .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+            */
 
         return http.build();
     }

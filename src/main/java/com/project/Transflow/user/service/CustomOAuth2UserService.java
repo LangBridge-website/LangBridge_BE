@@ -1,7 +1,5 @@
 package com.project.Transflow.user.service;
 
-import com.project.Transflow.admin.entity.AdminWhitelist;
-import com.project.Transflow.admin.repository.AdminWhitelistRepository;
 import com.project.Transflow.user.entity.User;
 import com.project.Transflow.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -24,7 +22,6 @@ import java.util.Map;
 public class CustomOAuth2UserService extends DefaultOAuth2UserService {
 
     private final UserRepository userRepository;
-    private final AdminWhitelistRepository adminWhitelistRepository;
 
     @Override
     @Transactional
@@ -97,31 +94,13 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
     }
 
     private int determineInitialRoleLevel(String email) {
-        // 1. 화이트리스트 체크 (최고관리자)
-        AdminWhitelist superAdmin = adminWhitelistRepository.findByEmail(email)
-            .filter(whitelist -> whitelist.getRoleLevel() == 1)
-            .orElse(null);
-        
-        if (superAdmin != null) {
-            return 1;
-        }
-
-        // 2. 화이트리스트 체크 (관리자)
-        AdminWhitelist admin = adminWhitelistRepository.findByEmail(email)
-            .filter(whitelist -> whitelist.getRoleLevel() == 2)
-            .orElse(null);
-        
-        if (admin != null) {
-            return 2;
-        }
-
-        // 3. 첫 번째 사용자면 최고관리자 (안전장치)
+        // 첫 번째 사용자면 최고관리자 (안전장치)
         if (userRepository.count() == 0) {
             log.warn("첫 번째 사용자가 최고관리자로 자동 할당됨: {}", email);
             return 1;
         }
 
-        // 4. 기본값: 번역봉사자
+        // 기본값: 번역봉사자
         return 3;
     }
 }
