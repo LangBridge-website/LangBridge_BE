@@ -74,6 +74,12 @@ dependencies {
 
     // Jsoup for web crawling (추가)
     implementation 'org.jsoup:jsoup:1.17.2'
+
+    // Playwright for full browser rendering and CSS extraction
+    implementation 'com.microsoft.playwright:playwright:1.45.0'
+    
+    // Netty native DNS resolver for MacOS (경고 제거)
+    implementation 'io.netty:netty-resolver-dns-native-macos:4.1.100.Final:osx-aarch_64'
 }
 
 tasks.named('test') {

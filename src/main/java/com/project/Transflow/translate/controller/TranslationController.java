@@ -1,6 +1,7 @@
 package com.project.Transflow.translate.controller;
 
 
+import com.project.Transflow.translate.dto.HtmlTranslationRequest;
 import com.project.Transflow.translate.dto.TranslationRequest;
 import com.project.Transflow.translate.dto.TranslationResponse;
 import com.project.Transflow.translate.service.TransflowService;
@@ -23,6 +24,18 @@ public class TranslationController {
 
         TranslationResponse response = transflowService.translateWebPage(request);
 
+        if (response.isSuccess()) {
+            return ResponseEntity.ok(response);
+        } else {
+            return ResponseEntity.badRequest().body(response);
+        }
+    }
+
+    @PostMapping("/html")
+    public ResponseEntity<TranslationResponse> translateHtml(@RequestBody HtmlTranslationRequest request) {
+        log.info("HTML 직접 번역 요청 - HTML 길이: {}", request.getHtml().length());
+        TranslationResponse response = transflowService.translateHtmlDirectly(request);
+        
         if (response.isSuccess()) {
             return ResponseEntity.ok(response);
         } else {

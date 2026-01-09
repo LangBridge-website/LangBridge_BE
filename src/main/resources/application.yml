@@ -53,6 +53,10 @@ server:
   port: 8080
   servlet:
     context-path: /
+  # 타임아웃 설정 (번역 시간 고려)
+  connection-timeout: 300000 # 5분
+  tomcat:
+    connection-timeout: 300000
 
 # Swagger 설정
 springdoc:
