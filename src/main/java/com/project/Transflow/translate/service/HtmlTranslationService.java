@@ -39,7 +39,7 @@ public class HtmlTranslationService {
      */
     public String translateHtml(String html, String targetLang, String sourceLang) {
         try {
-            log.info("HTML 번역 시작 - Target: {}, HTML 길이: {}", targetLang, html.length());
+            log.info("HTML 번역 시작 - Target: {}, HTML 길이: {}자", targetLang, html.length());
 
             Document doc = Jsoup.parse(html);
             
@@ -221,6 +221,7 @@ public class HtmlTranslationService {
         
         int totalBatches = 0;
         int currentBatchNumber = 0;
+        int totalTextLengthSent = 0; // DeepL API로 전송된 총 텍스트 길이 (요금제 사용량 추적)
         
         // 각 문맥 그룹을 처리
         for (List<TranslatableText> contextGroup : contextGroups) {
@@ -250,6 +251,12 @@ public class HtmlTranslationService {
                 log.debug("빈 텍스트 그룹 스킵");
                 continue;
             }
+            
+            // DeepL API로 전송되는 텍스트 길이 로깅 (요금제 사용량 추적)
+            int textLength = fullText.length();
+            totalTextLengthSent += textLength;
+            log.info("DeepL API 전송 - 텍스트 길이: {}자 (문맥 그룹: {}개 텍스트 노드)", 
+                    textLength, contextGroup.size());
             
             // 합쳐진 텍스트를 번역
             try {
@@ -286,7 +293,8 @@ public class HtmlTranslationService {
             }
         }
         
-        log.info("모든 텍스트 노드 번역 완료! (총 {}개 배치)", totalBatches);
+        log.info("모든 텍스트 노드 번역 완료! (총 {}개 배치, DeepL API로 전송된 총 텍스트 길이: {}자)", 
+                totalBatches, totalTextLengthSent);
     }
     
     /**

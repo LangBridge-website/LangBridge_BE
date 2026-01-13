@@ -39,5 +39,8 @@ public class CreateDocumentRequest {
 
     @Schema(description = "예상 분량 (글자 수)", example = "5000")
     private Integer estimatedLength;
+
+    @Schema(description = "문서 상태", example = "DRAFT", allowableValues = {"DRAFT", "PENDING_TRANSLATION", "IN_TRANSLATION", "PENDING_REVIEW", "APPROVED", "PUBLISHED"})
+    private String status;
 }
 

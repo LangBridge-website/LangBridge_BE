@@ -31,8 +31,21 @@ public class DocumentVersionService {
         Document document = documentRepository.findById(documentId)
                 .orElseThrow(() -> new IllegalArgumentException("문서를 찾을 수 없습니다: " + documentId));
 
-        User createdBy = userRepository.findById(createdById)
-                .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다: " + createdById));
+        // 개발 단계: createdById가 null이면 첫 번째 사용자 사용 (또는 기본 사용자)
+        User createdBy;
+        if (createdById != null) {
+            createdBy = userRepository.findById(createdById)
+                    .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다: " + createdById));
+        } else {
+            // 기본 사용자 찾기 (첫 번째 사용자 또는 관리자)
+            createdBy = userRepository.findAll().stream()
+                    .filter(user -> user.getRoleLevel() <= 2) // 관리자 이상
+                    .findFirst()
+                    .orElseGet(() -> userRepository.findAll().stream()
+                            .findFirst()
+                            .orElseThrow(() -> new IllegalArgumentException("시스템에 사용자가 없습니다. 먼저 사용자를 생성해주세요.")));
+            log.warn("Authorization 헤더가 없어 기본 사용자 사용: {}", createdBy.getId());
+        }
 
         // 다음 버전 번호 계산
         Integer nextVersionNumber = calculateNextVersionNumber(documentId, request.getVersionType());

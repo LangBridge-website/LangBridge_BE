@@ -26,19 +26,39 @@ public class DocumentService {
 
     @Transactional
     public DocumentResponse createDocument(CreateDocumentRequest request, Long createdById) {
-        User createdBy = userRepository.findById(createdById)
-                .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다: " + createdById));
+        // 개발 단계: createdById가 null이면 첫 번째 사용자 사용 (또는 기본 사용자)
+        User createdBy;
+        if (createdById != null) {
+            createdBy = userRepository.findById(createdById)
+                    .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다: " + createdById));
+        } else {
+            // 기본 사용자 찾기 (첫 번째 사용자 또는 관리자)
+            createdBy = userRepository.findAll().stream()
+                    .filter(user -> user.getRoleLevel() <= 2) // 관리자 이상
+                    .findFirst()
+                    .orElseGet(() -> userRepository.findAll().stream()
+                            .findFirst()
+                            .orElseThrow(() -> new IllegalArgumentException("시스템에 사용자가 없습니다. 먼저 사용자를 생성해주세요.")));
+            log.warn("Authorization 헤더가 없어 기본 사용자 사용: {}", createdBy.getId());
+        }
 
+        // status가 없으면 기본값 DRAFT 사용
+        String status = (request.getStatus() != null && !request.getStatus().isEmpty()) 
+                ? request.getStatus() 
+                : "DRAFT";
+        
         Document document = Document.builder()
                 .title(request.getTitle())
                 .originalUrl(request.getOriginalUrl())
                 .sourceLang(request.getSourceLang())
                 .targetLang(request.getTargetLang())
                 .categoryId(request.getCategoryId())
-                .status("DRAFT")
+                .status(status)
                 .estimatedLength(request.getEstimatedLength())
                 .createdBy(createdBy)
                 .build();
+        
+        log.info("문서 생성 - 상태: {}", status);
 
         Document saved = documentRepository.save(document);
         log.info("문서 생성: {} (id: {})", saved.getTitle(), saved.getId());

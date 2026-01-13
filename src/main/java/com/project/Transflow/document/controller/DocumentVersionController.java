@@ -14,7 +14,6 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -44,15 +43,17 @@ public class DocumentVersionController {
     })
     @PostMapping
     public ResponseEntity<DocumentVersionResponse> createVersion(
-            @Parameter(hidden = true) @RequestHeader("Authorization") String authHeader,
+            @Parameter(hidden = true) @RequestHeader(value = "Authorization", required = false) String authHeader,
             @Parameter(description = "문서 ID", required = true, example = "1")
             @PathVariable Long documentId,
             @Valid @RequestBody CreateDocumentVersionRequest request) {
 
-        Long createdById = adminAuthUtil.getUserIdFromToken(authHeader);
-        if (createdById == null) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        // 개발 단계: 헤더가 없으면 기본 사용자 ID 사용 (null 허용)
+        Long createdById = null;
+        if (authHeader != null && !authHeader.isEmpty()) {
+            createdById = adminAuthUtil.getUserIdFromToken(authHeader);
         }
+        // 헤더가 없으면 createdById는 null로 전달 (서비스에서 처리)
 
         try {
             DocumentVersionResponse response = documentVersionService.createVersion(documentId, request, createdById);

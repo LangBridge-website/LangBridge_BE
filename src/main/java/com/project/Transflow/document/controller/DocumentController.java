@@ -46,15 +46,20 @@ public class DocumentController {
     })
     @PostMapping
     public ResponseEntity<DocumentResponse> createDocument(
-            @Parameter(hidden = true) @RequestHeader("Authorization") String authHeader,
+            @Parameter(hidden = true) @RequestHeader(value = "Authorization", required = false) String authHeader,
             @Valid @RequestBody CreateDocumentRequest request) {
 
-        // 권한 체크 (관리자 이상)
-        if (!adminAuthUtil.isAdminOrAbove(authHeader)) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        // 개발 단계: 헤더가 없으면 기본 사용자 ID 사용 (null 허용)
+        Long createdById = null;
+        if (authHeader != null && !authHeader.isEmpty()) {
+            // 권한 체크 (관리자 이상) - 헤더가 있을 때만
+            if (!adminAuthUtil.isAdminOrAbove(authHeader)) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+            }
+            createdById = adminAuthUtil.getUserIdFromToken(authHeader);
         }
+        // 헤더가 없으면 createdById는 null로 전달 (서비스에서 처리)
 
-        Long createdById = adminAuthUtil.getUserIdFromToken(authHeader);
         DocumentResponse response = documentService.createDocument(request, createdById);
         return ResponseEntity.ok(response);
     }
