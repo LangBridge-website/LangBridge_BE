@@ -39,3 +39,4 @@ public class DocumentLock {
     private String completedParagraphs; // 완료된 문단 ID 배열 (JSON)
 }
 
+
