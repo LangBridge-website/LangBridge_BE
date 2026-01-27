@@ -5,8 +5,12 @@ import com.project.Transflow.document.dto.DocumentResponse;
 import com.project.Transflow.document.dto.UpdateDocumentRequest;
 import com.project.Transflow.document.entity.Document;
 import com.project.Transflow.document.repository.DocumentRepository;
+import com.project.Transflow.document.service.HandoverHistoryService;
+import com.project.Transflow.document.entity.HandoverHistory;
 import com.project.Transflow.user.entity.User;
 import com.project.Transflow.user.repository.UserRepository;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -23,6 +27,8 @@ public class DocumentService {
 
     private final DocumentRepository documentRepository;
     private final UserRepository userRepository;
+    private final HandoverHistoryService handoverHistoryService;
+    private final ObjectMapper objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
 
     @Transactional
     public DocumentResponse createDocument(CreateDocumentRequest request, Long createdById) {
@@ -173,6 +179,41 @@ public class DocumentService {
                     .email(document.getLastModifiedBy().getEmail())
                     .name(document.getLastModifiedBy().getName())
                     .build());
+        }
+
+        // 최신 인계 정보 추가
+        Optional<HandoverHistory> latestHandover = handoverHistoryService.findLatestByDocumentId(document.getId());
+        if (latestHandover.isPresent()) {
+            HandoverHistory handover = latestHandover.get();
+            
+            // completedParagraphs JSON 파싱
+            java.util.List<Integer> completedParagraphsList = null;
+            if (handover.getCompletedParagraphs() != null && !handover.getCompletedParagraphs().isEmpty()) {
+                try {
+                    completedParagraphsList = objectMapper.readValue(
+                        handover.getCompletedParagraphs(),
+                        new TypeReference<java.util.List<Integer>>() {}
+                    );
+                } catch (Exception e) {
+                    log.warn("인계 히스토리의 completedParagraphs 파싱 실패: {}", e.getMessage());
+                }
+            }
+
+            DocumentResponse.HandoverInfo.HandoverInfoBuilder handoverBuilder = DocumentResponse.HandoverInfo.builder()
+                    .memo(handover.getMemo())
+                    .terms(handover.getTerms())
+                    .completedParagraphs(completedParagraphsList)
+                    .handedOverAt(handover.getCreatedAt());
+
+            if (handover.getHandedOverBy() != null) {
+                handoverBuilder.handedOverBy(DocumentResponse.CreatorInfo.builder()
+                        .id(handover.getHandedOverBy().getId())
+                        .email(handover.getHandedOverBy().getEmail())
+                        .name(handover.getHandedOverBy().getName())
+                        .build());
+            }
+
+            builder.latestHandover(handoverBuilder.build());
         }
 
         return builder.build();

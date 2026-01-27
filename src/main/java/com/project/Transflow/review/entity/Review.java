@@ -42,7 +42,7 @@ public class Review {
     @Column(columnDefinition = "TEXT")
     private String comment; // 리뷰 코멘트
 
-    @Column(columnDefinition = "JSON")
+    @Column(columnDefinition = "TEXT")
     private String checklist; // 체크리스트 JSON 문자열 (번역누락, 용어집적용, 검토자확인 등)
 
     @Column

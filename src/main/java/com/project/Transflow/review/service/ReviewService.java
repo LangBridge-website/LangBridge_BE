@@ -149,9 +149,9 @@ public class ReviewService {
         review.setStatus("REJECTED");
         review.setReviewedAt(LocalDateTime.now());
 
-        // Document 상태 업데이트 (다시 번역 필요)
+        // Document 상태 업데이트 (다시 번역 대기 상태로 변경)
         Document document = review.getDocument();
-        document.setStatus("IN_TRANSLATION");
+        document.setStatus("PENDING_TRANSLATION");
         documentRepository.save(document);
 
         Review saved = reviewRepository.save(review);

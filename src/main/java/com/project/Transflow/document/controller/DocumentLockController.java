@@ -10,6 +10,7 @@ import com.project.Transflow.document.repository.DocumentLockRepository;
 import com.project.Transflow.document.service.DocumentLockService;
 import com.project.Transflow.document.service.DocumentService;
 import com.project.Transflow.document.service.DocumentVersionService;
+import com.project.Transflow.document.service.HandoverHistoryService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -37,6 +38,7 @@ public class DocumentLockController {
     private final DocumentLockService lockService;
     private final DocumentService documentService;
     private final DocumentVersionService versionService;
+    private final HandoverHistoryService handoverHistoryService;
     private final AdminAuthUtil adminAuthUtil;
     private final ObjectMapper objectMapper;
     private final DocumentLockRepository lockRepository;
@@ -260,15 +262,12 @@ public class DocumentLockController {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "락을 보유하고 있지 않습니다.");
         }
 
-        // 인계 메모 저장 (락에 저장)
+        // 인계 히스토리 생성 (옵션 2: 별도 엔티티로 관리)
+        handoverHistoryService.createHandover(documentId, request, userId);
+
+        // 락 해제
         var lockOpt = lockService.getLockStatus(documentId);
         if (lockOpt.isPresent()) {
-            DocumentLock lock = lockOpt.get();
-            lock.setHandoverMemo(request.getMemo());
-            lock.setCompletedParagraphs(request.getCompletedParagraphs() != null 
-                    ? request.getCompletedParagraphs().toString() 
-                    : null);
-            // 락 해제
             lockService.releaseLock(documentId, userId);
         }
 

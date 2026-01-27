@@ -56,6 +56,9 @@ public class DocumentResponse {
     @Schema(description = "수정일시", example = "2024-01-01T00:00:00")
     private LocalDateTime updatedAt;
 
+    @Schema(description = "최신 인계 정보")
+    private HandoverInfo latestHandover;
+
     @Getter
     @Setter
     @NoArgsConstructor
@@ -88,6 +91,29 @@ public class DocumentResponse {
 
         @Schema(description = "수정자 이름", example = "사용자")
         private String name;
+    }
+
+    @Getter
+    @Setter
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    @Schema(description = "인계 정보")
+    public static class HandoverInfo {
+        @Schema(description = "인계 메모", example = "15-30번 문단 남음")
+        private String memo;
+
+        @Schema(description = "주의 용어/표현 메모", example = "전문 용어 주의")
+        private String terms;
+
+        @Schema(description = "완료된 문단 ID 배열", example = "[1, 2, 3]")
+        private java.util.List<Integer> completedParagraphs;
+
+        @Schema(description = "인계한 사용자 정보")
+        private CreatorInfo handedOverBy;
+
+        @Schema(description = "인계 일시", example = "2024-01-01T00:00:00")
+        private LocalDateTime handedOverAt;
     }
 }
 
