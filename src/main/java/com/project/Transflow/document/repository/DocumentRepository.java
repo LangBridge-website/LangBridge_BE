@@ -14,5 +14,7 @@ public interface DocumentRepository extends JpaRepository<Document, Long> {
     List<Document> findByCreatedBy_Id(Long createdById);
     List<Document> findByStatusAndCategoryId(String status, Long categoryId);
     Optional<Document> findByIdAndStatus(Long id, String status);
+    List<Document> findByOriginalUrl(String originalUrl);
+    List<Document> findByOriginalUrlOrderByCreatedAtDesc(String originalUrl);
 }
 

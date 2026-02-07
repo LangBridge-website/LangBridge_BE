@@ -74,7 +74,7 @@ public class DocumentController {
 
     @Operation(
             summary = "문서 목록 조회",
-            description = "모든 문서 목록을 조회합니다."
+            description = "모든 문서 목록을 조회합니다. excludePendingTranslation=true이면 PENDING_TRANSLATION 상태 제외"
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "조회 성공")
@@ -84,7 +84,9 @@ public class DocumentController {
             @Parameter(description = "상태 필터", example = "PENDING_TRANSLATION")
             @RequestParam(required = false) String status,
             @Parameter(description = "카테고리 ID 필터", example = "1")
-            @RequestParam(required = false) Long categoryId) {
+            @RequestParam(required = false) Long categoryId,
+            @Parameter(description = "PENDING_TRANSLATION 상태 제외 여부", example = "true")
+            @RequestParam(required = false, defaultValue = "false") Boolean excludePendingTranslation) {
 
         List<DocumentResponse> documents;
         if (status != null && categoryId != null) {
@@ -98,7 +100,12 @@ public class DocumentController {
         } else if (categoryId != null) {
             documents = documentService.findByCategoryId(categoryId);
         } else {
-            documents = documentService.findAll();
+            // excludePendingTranslation이 true이면 PENDING_TRANSLATION 제외
+            if (excludePendingTranslation) {
+                documents = documentService.findAllExcludingPendingTranslation();
+            } else {
+                documents = documentService.findAll();
+            }
         }
 
         return ResponseEntity.ok(documents);
