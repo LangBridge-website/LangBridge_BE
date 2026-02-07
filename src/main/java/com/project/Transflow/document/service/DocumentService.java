@@ -5,6 +5,7 @@ import com.project.Transflow.document.dto.DocumentResponse;
 import com.project.Transflow.document.dto.UpdateDocumentRequest;
 import com.project.Transflow.document.entity.Document;
 import com.project.Transflow.document.repository.DocumentRepository;
+import com.project.Transflow.document.repository.DocumentVersionRepository;
 import com.project.Transflow.document.service.HandoverHistoryService;
 import com.project.Transflow.document.entity.HandoverHistory;
 import com.project.Transflow.user.entity.User;
@@ -27,6 +28,7 @@ import java.util.stream.Collectors;
 public class DocumentService {
 
     private final DocumentRepository documentRepository;
+    private final DocumentVersionRepository documentVersionRepository;
     private final UserRepository userRepository;
     private final HandoverHistoryService handoverHistoryService;
     private final ObjectMapper objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
@@ -73,6 +75,9 @@ public class DocumentService {
             if (request.getEstimatedLength() != null) {
                 docToUpdate.setEstimatedLength(request.getEstimatedLength());
             }
+            if (request.getDraftData() != null) {
+                docToUpdate.setDraftData(request.getDraftData());
+            }
             docToUpdate.setLastModifiedBy(createdBy);
             document = documentRepository.save(docToUpdate);
             log.info("기존 문서 제목 업데이트: {} (id: {}, 상태: {} -> {})", 
@@ -87,6 +92,7 @@ public class DocumentService {
                     .categoryId(request.getCategoryId())
                     .status(status)
                     .estimatedLength(request.getEstimatedLength())
+                    .draftData(request.getDraftData())
                     .createdBy(createdBy)
                     .build();
             
@@ -191,6 +197,9 @@ public class DocumentService {
         if (request.getEstimatedLength() != null) {
             document.setEstimatedLength(request.getEstimatedLength());
         }
+        if (request.getDraftData() != null) {
+            document.setDraftData(request.getDraftData());
+        }
 
         document.setLastModifiedBy(lastModifiedBy);
 
@@ -209,6 +218,10 @@ public class DocumentService {
     }
 
     private DocumentResponse toResponse(Document document) {
+        // 버전 개수 조회
+        long versionCount = documentVersionRepository.countByDocument_Id(document.getId());
+        boolean hasVersions = versionCount > 0;
+        
         DocumentResponse.DocumentResponseBuilder builder = DocumentResponse.builder()
                 .id(document.getId())
                 .title(document.getTitle())
@@ -219,6 +232,9 @@ public class DocumentService {
                 .status(document.getStatus())
                 .currentVersionId(document.getCurrentVersionId())
                 .estimatedLength(document.getEstimatedLength())
+                .versionCount(versionCount)
+                .hasVersions(hasVersions)
+                .draftData(document.getDraftData())
                 .createdAt(document.getCreatedAt())
                 .updatedAt(document.getUpdatedAt());
 

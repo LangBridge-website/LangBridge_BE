@@ -42,5 +42,8 @@ public class CreateDocumentRequest {
 
     @Schema(description = "문서 상태", example = "DRAFT", allowableValues = {"DRAFT", "PENDING_TRANSLATION", "IN_TRANSLATION", "PENDING_REVIEW", "APPROVED", "PUBLISHED"})
     private String status;
+
+    @Schema(description = "임시저장 데이터 (JSON)", example = "{\"currentStep\": 2, \"draft\": {...}}")
+    private String draftData;
 }
 

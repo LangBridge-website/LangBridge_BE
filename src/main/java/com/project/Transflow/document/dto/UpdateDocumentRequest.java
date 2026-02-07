@@ -37,5 +37,8 @@ public class UpdateDocumentRequest {
 
     @Schema(description = "예상 분량 (글자 수)", example = "6000")
     private Integer estimatedLength;
+
+    @Schema(description = "임시저장 데이터 (JSON)", example = "{\"currentStep\": 2, \"draft\": {...}}")
+    private String draftData;
 }
 
