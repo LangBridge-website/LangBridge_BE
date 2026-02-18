@@ -37,6 +37,21 @@ public class TermDictionary {
     private String description; // 용어 설명
 
     @Column(length = 100)
+    private String category; // 구분(분야)
+
+    @Column(length = 500)
+    private String articleTitle; // 기사제목
+
+    @Column(length = 200)
+    private String articleSource; // 출처(날짜)
+
+    @Column(length = 1000)
+    private String articleLink; // 기사링크
+
+    @Column(columnDefinition = "TEXT")
+    private String memo; // 메모
+
+    @Column(length = 100)
     private String deeplGlossaryId; // DeepL Glossary ID (같은 언어 쌍은 같은 ID)
 
     @ManyToOne(fetch = FetchType.LAZY)

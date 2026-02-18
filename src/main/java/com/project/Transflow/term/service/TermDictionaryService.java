@@ -1,6 +1,8 @@
 package com.project.Transflow.term.service;
 
+import com.project.Transflow.term.dto.BatchCreateTermRequest;
 import com.project.Transflow.term.dto.CreateTermRequest;
+import com.project.Transflow.term.dto.TermDictionaryPageResponse;
 import com.project.Transflow.term.dto.TermDictionaryResponse;
 import com.project.Transflow.term.dto.UpdateTermRequest;
 import com.project.Transflow.term.entity.TermDictionary;
@@ -9,9 +11,14 @@ import com.project.Transflow.user.entity.User;
 import com.project.Transflow.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -42,6 +49,11 @@ public class TermDictionaryService {
                 .sourceLang(request.getSourceLang())
                 .targetLang(request.getTargetLang())
                 .description(request.getDescription())
+                .category(request.getCategory())
+                .articleTitle(request.getArticleTitle())
+                .articleSource(request.getArticleSource())
+                .articleLink(request.getArticleLink())
+                .memo(request.getMemo())
                 .createdBy(createdBy)
                 .build();
 
@@ -60,11 +72,181 @@ public class TermDictionaryService {
         return toResponse(saved);
     }
 
+    /**
+     * 대량 용어 추가 (TSV 형식)
+     * @param request 대량 추가 요청 (TSV 형식: 구분\t영어\t한국어\t기사제목\t출처\t기사링크\t메모)
+     * @param createdById 생성자 ID
+     * @return 대량 추가 결과 (성공/실패 개수 및 에러 목록)
+     */
+    @Transactional
+    public BatchCreateTermResult createTermsBatch(BatchCreateTermRequest request, Long createdById) {
+        User createdBy = userRepository.findById(createdById)
+                .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다: " + createdById));
+
+        String sourceLang = request.getSourceLang().toUpperCase();
+        String targetLang = request.getTargetLang().toUpperCase();
+        
+        List<String> errors = new ArrayList<>();
+        int successCount = 0;
+        int failedCount = 0;
+        
+        // TSV 형식 파싱 (각 줄: 구분\t영어\t한국어\t기사제목\t출처\t기사링크\t메모)
+        String[] lines = request.getTermsText().split("\n");
+        
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i].trim();
+            if (line.isEmpty()) {
+                continue; // 빈 줄 스킵
+            }
+            
+            // 헤더 줄 체크 (첫 줄이 "구분", "영어", "한국어" 등을 포함하면 스킵)
+            if (i == 0 && (line.contains("구분") || line.contains("영어") || line.contains("한국어") || 
+                          line.contains("기사제목") || line.contains("출처") || line.contains("기사링크") || line.contains("메모"))) {
+                continue; // 헤더 줄 스킵
+            }
+            
+            try {
+                // 탭으로 분리 (7개 컬럼: 구분, 영어, 한국어, 기사제목, 출처, 기사링크, 메모)
+                // -1을 사용하여 빈 값도 포함
+                String[] parts = line.split("\t", -1);
+                
+                if (parts.length < 2) {
+                    errors.add(String.format("줄 %d: 형식이 잘못되었습니다 (최소 2개 컬럼 필요: 영어, 한국어)", i + 1));
+                    failedCount++;
+                    continue;
+                }
+                
+                String category = (parts.length > 0 && !parts[0].trim().isEmpty()) ? parts[0].trim() : null;
+                String sourceTerm = (parts.length > 1 && !parts[1].trim().isEmpty()) ? parts[1].trim() : null;
+                String targetTerm = (parts.length > 2 && !parts[2].trim().isEmpty()) ? parts[2].trim() : null;
+                String articleTitle = (parts.length > 3 && !parts[3].trim().isEmpty()) ? parts[3].trim() : null;
+                String articleSource = (parts.length > 4 && !parts[4].trim().isEmpty()) ? parts[4].trim() : null;
+                String articleLink = (parts.length > 5 && !parts[5].trim().isEmpty()) ? parts[5].trim() : null;
+                String memo = (parts.length > 6 && !parts[6].trim().isEmpty()) ? parts[6].trim() : null;
+                
+                if (sourceTerm == null || sourceTerm.isEmpty() || 
+                    targetTerm == null || targetTerm.isEmpty()) {
+                    errors.add(String.format("줄 %d: 영어 또는 한국어가 비어있습니다", i + 1));
+                    failedCount++;
+                    continue;
+                }
+                
+                // 중복 체크
+                if (termDictionaryRepository.existsBySourceTermAndSourceLangAndTargetLang(
+                        sourceTerm, sourceLang, targetLang)) {
+                    errors.add(String.format("줄 %d: 이미 존재하는 용어입니다 (%s)", i + 1, sourceTerm));
+                    failedCount++;
+                    continue;
+                }
+                
+                // 용어 생성 및 저장
+                TermDictionary term = TermDictionary.builder()
+                        .sourceTerm(sourceTerm)
+                        .targetTerm(targetTerm)
+                        .sourceLang(sourceLang)
+                        .targetLang(targetLang)
+                        .category(category)
+                        .articleTitle(articleTitle)
+                        .articleSource(articleSource)
+                        .articleLink(articleLink)
+                        .memo(memo)
+                        .createdBy(createdBy)
+                        .build();
+                
+                termDictionaryRepository.save(term);
+                successCount++;
+                log.debug("용어 추가: {} -> {} ({} -> {})", sourceTerm, targetTerm, sourceLang, targetLang);
+                
+            } catch (Exception e) {
+                errors.add(String.format("줄 %d: %s", i + 1, e.getMessage()));
+                failedCount++;
+                log.warn("용어 추가 실패 (줄 {}): {}", i + 1, e.getMessage());
+            }
+        }
+        
+        log.info("대량 용어 추가 완료: 성공={}, 실패={} ({} -> {})", 
+                successCount, failedCount, sourceLang, targetLang);
+        
+        // DeepL Glossary 동기화 (성공한 용어가 있을 때만)
+        // DeepL에는 영어와 한국어만 전송 (sourceTerm, targetTerm만 사용)
+        if (successCount > 0) {
+            try {
+                syncGlossaryToDeepL(sourceLang, targetLang);
+            } catch (Exception e) {
+                log.warn("DeepL Glossary 동기화 실패 (용어는 저장됨): {}", e.getMessage());
+                // 용어는 저장되었으므로 계속 진행
+            }
+        }
+        
+        return new BatchCreateTermResult(successCount, failedCount, errors);
+    }
+    
+    /**
+     * 대량 추가 결과 DTO
+     */
+    public static class BatchCreateTermResult {
+        private final int successCount;
+        private final int failedCount;
+        private final List<String> errors;
+        
+        public BatchCreateTermResult(int successCount, int failedCount, List<String> errors) {
+            this.successCount = successCount;
+            this.failedCount = failedCount;
+            this.errors = errors;
+        }
+        
+        public int getSuccessCount() {
+            return successCount;
+        }
+        
+        public int getFailedCount() {
+            return failedCount;
+        }
+        
+        public List<String> getErrors() {
+            return errors;
+        }
+    }
+
     @Transactional(readOnly = true)
     public List<TermDictionaryResponse> findAll() {
         return termDictionaryRepository.findAll().stream()
                 .map(this::toResponse)
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * 페이지네이션을 사용한 용어 목록 조회
+     */
+    @Transactional(readOnly = true)
+    public TermDictionaryPageResponse findAllPaged(String sourceLang, String targetLang, int page, int size) {
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Page<TermDictionary> termPage;
+
+        if (sourceLang != null && targetLang != null) {
+            termPage = termDictionaryRepository.findBySourceLangAndTargetLang(
+                    sourceLang.toUpperCase(), targetLang.toUpperCase(), pageable);
+        } else if (sourceLang != null) {
+            termPage = termDictionaryRepository.findBySourceLang(sourceLang.toUpperCase(), pageable);
+        } else if (targetLang != null) {
+            termPage = termDictionaryRepository.findByTargetLang(targetLang.toUpperCase(), pageable);
+        } else {
+            termPage = termDictionaryRepository.findAll(pageable);
+        }
+
+        List<TermDictionaryResponse> content = termPage.getContent().stream()
+                .map(this::toResponse)
+                .collect(Collectors.toList());
+
+        return TermDictionaryPageResponse.builder()
+                .content(content)
+                .page(termPage.getNumber())
+                .size(termPage.getSize())
+                .totalElements(termPage.getTotalElements())
+                .totalPages(termPage.getTotalPages())
+                .first(termPage.isFirst())
+                .last(termPage.isLast())
+                .build();
     }
 
     @Transactional(readOnly = true)
@@ -155,6 +337,26 @@ public class TermDictionaryService {
             term.setDescription(request.getDescription());
         }
 
+        if (request.getCategory() != null) {
+            term.setCategory(request.getCategory());
+        }
+
+        if (request.getArticleTitle() != null) {
+            term.setArticleTitle(request.getArticleTitle());
+        }
+
+        if (request.getArticleSource() != null) {
+            term.setArticleSource(request.getArticleSource());
+        }
+
+        if (request.getArticleLink() != null) {
+            term.setArticleLink(request.getArticleLink());
+        }
+
+        if (request.getMemo() != null) {
+            term.setMemo(request.getMemo());
+        }
+
         TermDictionary saved = termDictionaryRepository.save(term);
         log.info("용어 사전 수정: {} (id: {})", saved.getSourceTerm(), id);
         
@@ -214,6 +416,11 @@ public class TermDictionaryService {
                 .sourceLang(term.getSourceLang())
                 .targetLang(term.getTargetLang())
                 .description(term.getDescription())
+                .category(term.getCategory())
+                .articleTitle(term.getArticleTitle())
+                .articleSource(term.getArticleSource())
+                .articleLink(term.getArticleLink())
+                .memo(term.getMemo())
                 .deeplGlossaryId(term.getDeeplGlossaryId())
                 .createdAt(term.getCreatedAt())
                 .updatedAt(term.getUpdatedAt());
