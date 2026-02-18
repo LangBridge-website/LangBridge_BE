@@ -35,6 +35,9 @@ public class TermDictionaryResponse {
     @Schema(description = "용어 설명", example = "Java 웹 애플리케이션 프레임워크")
     private String description;
 
+    @Schema(description = "DeepL Glossary ID", example = "def3a26b-3e84-45b3-84ae-0c0aaf3525f7")
+    private String deeplGlossaryId;
+
     @Schema(description = "생성자 정보")
     private CreatorInfo createdBy;
 

@@ -38,6 +38,10 @@ public class HtmlTranslationService {
      * @return 번역된 HTML
      */
     public String translateHtml(String html, String targetLang, String sourceLang) {
+        return translateHtml(html, targetLang, sourceLang, null);
+    }
+
+    public String translateHtml(String html, String targetLang, String sourceLang, String glossaryId) {
         try {
             log.info("HTML 번역 시작 - Target: {}, HTML 길이: {}자", targetLang, html.length());
 
@@ -97,7 +101,7 @@ public class HtmlTranslationService {
             log.info("번역 가능한 텍스트 노드 수: {}", translatableTexts.size());
 
             // 텍스트들을 배치로 번역 (DeepL API 효율성 고려)
-            translateTextNodes(translatableTexts, targetLang, sourceLang);
+            translateTextNodes(translatableTexts, targetLang, sourceLang, glossaryId);
 
             // 번역된 텍스트로 HTML 재구성 전에 한 번 더 스크립트 제거 (혹시 모를 경우 대비)
             doc.select("script").remove();
@@ -208,7 +212,7 @@ public class HtmlTranslationService {
      * 텍스트 노드들을 번역
      * 문맥을 고려한 배치 번역으로 품질과 속도 모두 개선
      */
-    private void translateTextNodes(List<TranslatableText> texts, String targetLang, String sourceLang) {
+    private void translateTextNodes(List<TranslatableText> texts, String targetLang, String sourceLang, String glossaryId) {
         if (texts.isEmpty()) {
             return;
         }
@@ -260,7 +264,7 @@ public class HtmlTranslationService {
             
             // 합쳐진 텍스트를 번역
             try {
-                String translatedText = translationService.translate(fullText, targetLang, sourceLang);
+                String translatedText = translationService.translate(fullText, targetLang, sourceLang, glossaryId);
                 
                 // 번역된 텍스트를 원래 텍스트 노드들에 분배
                 // 원본 텍스트의 비율에 따라 번역된 텍스트를 분배
@@ -276,7 +280,7 @@ public class HtmlTranslationService {
                 // 실패 시 개별 번역으로 폴백
                 for (TranslatableText tt : contextGroup) {
                     try {
-                        String translated = translationService.translate(tt.originalText, targetLang, sourceLang);
+                        String translated = translationService.translate(tt.originalText, targetLang, sourceLang, glossaryId);
                         tt.textNode.text(translated.trim());
                     } catch (Exception ex) {
                         log.warn("개별 번역 실패: {}", ex.getMessage());
@@ -413,7 +417,7 @@ public class HtmlTranslationService {
         
         try {
             // 여러 텍스트를 한 번에 번역 (DeepL API는 여러 텍스트를 지원)
-            List<String> translatedTexts = translationService.translateBatch(batchTexts, targetLang, sourceLang);
+            List<String> translatedTexts = translationService.translateBatch(batchTexts, targetLang, sourceLang, null);
             
             // 번역 결과를 각 텍스트 노드에 매핑
             for (int i = 0; i < batch.size() && i < translatedTexts.size(); i++) {
@@ -447,7 +451,8 @@ public class HtmlTranslationService {
                     String translated = translationService.translate(
                             translatableText.originalText, 
                             targetLang, 
-                            sourceLang
+                            sourceLang,
+                            null
                     );
                     if (translated != null && !translated.trim().isEmpty()) {
                         translatableText.textNode.text(translated.trim());

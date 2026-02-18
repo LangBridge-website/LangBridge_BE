@@ -4,6 +4,7 @@ package com.project.Transflow.translate.service;
 import com.project.Transflow.translate.dto.HtmlTranslationRequest;
 import com.project.Transflow.translate.dto.TranslationRequest;
 import com.project.Transflow.translate.dto.TranslationResponse;
+import com.project.Transflow.term.service.TermDictionaryService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jsoup.Jsoup;
@@ -19,6 +20,7 @@ public class TransflowService {
 
     private final CrawlerService crawlerService;
     private final HtmlTranslationService htmlTranslationService;
+    private final TermDictionaryService termDictionaryService;
 
     public TranslationResponse translateWebPage(TranslationRequest request) {
         try {
@@ -34,11 +36,28 @@ public class TransflowService {
             String translatedText = null;
             
             if (request.getTargetLang() != null && !request.getTargetLang().equalsIgnoreCase("NONE")) {
+                // 용어집 자동 조회 (요청에 glossaryId가 없으면 자동으로 조회)
+                String glossaryId = request.getGlossaryId();
+                if (glossaryId == null || glossaryId.isEmpty()) {
+                    try {
+                        glossaryId = termDictionaryService.getGlossaryIdByLanguages(
+                                request.getSourceLang(), request.getTargetLang());
+                        if (glossaryId != null) {
+                            log.info("용어집 자동 조회 완료: glossaryId={} ({} -> {})", 
+                                    glossaryId, request.getSourceLang(), request.getTargetLang());
+                        }
+                    } catch (Exception e) {
+                        log.warn("용어집 자동 조회 실패: {}", e.getMessage());
+                        // 용어집 조회 실패해도 번역은 계속 진행
+                    }
+                }
+                
                 // HTML 구조 유지하며 번역
                 translatedHtml = htmlTranslationService.translateHtml(
                         originalHtml,
                         request.getTargetLang(),
-                        request.getSourceLang()
+                        request.getSourceLang(),
+                        glossaryId
                 );
                 log.info("HTML 번역 완료");
                 
@@ -88,11 +107,28 @@ public class TransflowService {
         try {
             log.info("HTML 직접 번역 시작 - HTML 길이: {}", request.getHtml().length());
             
+            // 용어집 자동 조회 (요청에 glossaryId가 없으면 자동으로 조회)
+            String glossaryId = request.getGlossaryId();
+            if (glossaryId == null || glossaryId.isEmpty()) {
+                try {
+                    glossaryId = termDictionaryService.getGlossaryIdByLanguages(
+                            request.getSourceLang(), request.getTargetLang());
+                    if (glossaryId != null) {
+                        log.info("용어집 자동 조회 완료: glossaryId={} ({} -> {})", 
+                                glossaryId, request.getSourceLang(), request.getTargetLang());
+                    }
+                } catch (Exception e) {
+                    log.warn("용어집 자동 조회 실패: {}", e.getMessage());
+                    // 용어집 조회 실패해도 번역은 계속 진행
+                }
+            }
+            
             // HTML 번역
             String translatedHtml = htmlTranslationService.translateHtml(
                     request.getHtml(),
                     request.getTargetLang(),
-                    request.getSourceLang()
+                    request.getSourceLang(),
+                    glossaryId
             );
             
             // 텍스트 추출 (하위 호환성)

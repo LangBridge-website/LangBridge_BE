@@ -36,6 +36,9 @@ public class TermDictionary {
     @Column(columnDefinition = "TEXT")
     private String description; // 용어 설명
 
+    @Column(length = 100)
+    private String deeplGlossaryId; // DeepL Glossary ID (같은 언어 쌍은 같은 ID)
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "created_by", nullable = false)
     private User createdBy; // 생성자
