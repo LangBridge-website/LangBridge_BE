@@ -80,4 +80,4 @@ encryption:
 deepl:
   api:
     url: ${DEEPL_API_URL:https://api-free.deepl.com/v2/translate}
-    key: ${DEEPL_API_KEY:}
+    # key: ${DEEPL_API_KEY:}  # 더 이상 사용하지 않음 (DB에서 관리)

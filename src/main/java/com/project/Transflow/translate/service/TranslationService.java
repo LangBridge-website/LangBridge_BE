@@ -20,13 +20,10 @@ public class TranslationService {
 
     private final WebClient webClient;
     private final ApiKeyService apiKeyService;
-    private final String fallbackApiKey; // .env 파일의 백업 키 (DB에 없을 때 사용)
 
     public TranslationService(
             @Value("${deepl.api.url}") String apiUrl,
-            @Value("${deepl.api.key:}") String fallbackApiKey,
             ApiKeyService apiKeyService) {
-        this.fallbackApiKey = fallbackApiKey;
         this.apiKeyService = apiKeyService;
         this.webClient = WebClient.builder()
                 .baseUrl(apiUrl)
@@ -35,7 +32,7 @@ public class TranslationService {
     }
 
     /**
-     * DeepL API 키 조회 (DB 우선, 없으면 .env 백업 키 사용)
+     * DeepL API 키 조회 (DB에서 복호화)
      */
     private String getApiKey() {
         try {
@@ -44,13 +41,7 @@ public class TranslationService {
                 return dbApiKey;
             }
         } catch (Exception e) {
-            log.warn("DB에서 API 키 조회 실패, 백업 키 사용: {}", e.getMessage());
-        }
-
-        // DB에 키가 없으면 .env 파일의 백업 키 사용
-        if (fallbackApiKey != null && !fallbackApiKey.isEmpty()) {
-            log.info(".env 백업 API 키 사용");
-            return fallbackApiKey;
+            log.error("DB에서 API 키 조회 실패: {}", e.getMessage());
         }
 
         throw new RuntimeException("DeepL API 키가 설정되지 않았습니다. 시스템 설정에서 API 키를 등록해주세요.");
