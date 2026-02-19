@@ -73,5 +73,5 @@ logging:
 #deepL
 deepl:
   api:
-    key: ${APIKEY}
-    url: ${APIURL}
+    key: ${DEEPL_API_KEY}
+    url: ${DEEPL_API_URL}
