@@ -168,6 +168,13 @@ public class DocumentService {
                 .collect(Collectors.toList());
     }
 
+    @Transactional(readOnly = true)
+    public List<DocumentResponse> findByTitleContaining(String title) {
+        return documentRepository.findByTitleContainingIgnoreCase(title).stream()
+                .map(this::toResponse)
+                .collect(Collectors.toList());
+    }
+
     @Transactional
     public DocumentResponse updateDocument(Long id, UpdateDocumentRequest request, Long modifiedById) {
         Document document = documentRepository.findById(id)

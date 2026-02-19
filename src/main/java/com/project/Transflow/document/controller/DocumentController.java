@@ -74,7 +74,7 @@ public class DocumentController {
 
     @Operation(
             summary = "문서 목록 조회",
-            description = "모든 문서 목록을 조회합니다. excludePendingTranslation=true이면 PENDING_TRANSLATION 상태 제외"
+            description = "모든 문서 목록을 조회합니다. 검색 및 필터링 지원"
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "조회 성공")
@@ -87,10 +87,28 @@ public class DocumentController {
             @RequestParam(required = false) Long categoryId,
             @Parameter(description = "PENDING_TRANSLATION 상태 제외 여부", example = "true")
             @RequestParam(required = false, defaultValue = "false") Boolean excludePendingTranslation) {
+            @Parameter(description = "제목 검색", example = "문서 제목")
+            @RequestParam(required = false) String title) {
 
         List<DocumentResponse> documents;
-        if (status != null && categoryId != null) {
-            // 상태와 카테고리로 필터링 (Repository에 메서드 추가 필요)
+        
+        // 제목 검색이 있으면 검색 결과 사용
+        if (title != null && !title.trim().isEmpty()) {
+            documents = documentService.findByTitleContaining(title.trim());
+            
+            // 추가 필터 적용
+            if (status != null) {
+                documents = documents.stream()
+                        .filter(doc -> doc.getStatus().equals(status))
+                        .collect(java.util.stream.Collectors.toList());
+            }
+            if (categoryId != null) {
+                documents = documents.stream()
+                        .filter(doc -> doc.getCategoryId() != null && doc.getCategoryId().equals(categoryId))
+                        .collect(java.util.stream.Collectors.toList());
+            }
+        } else if (status != null && categoryId != null) {
+            // 상태와 카테고리로 필터링
             documents = documentService.findByStatus(status);
             documents = documents.stream()
                     .filter(doc -> doc.getCategoryId() != null && doc.getCategoryId().equals(categoryId))

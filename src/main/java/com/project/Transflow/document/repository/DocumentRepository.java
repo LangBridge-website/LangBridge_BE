@@ -2,6 +2,8 @@ package com.project.Transflow.document.repository;
 
 import com.project.Transflow.document.entity.Document;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -16,5 +18,9 @@ public interface DocumentRepository extends JpaRepository<Document, Long> {
     Optional<Document> findByIdAndStatus(Long id, String status);
     List<Document> findByOriginalUrl(String originalUrl);
     List<Document> findByOriginalUrlOrderByCreatedAtDesc(String originalUrl);
+    
+    // 제목으로 검색 (대소문자 구분 없음)
+    @Query("SELECT d FROM Document d WHERE LOWER(d.title) LIKE LOWER(CONCAT('%', :title, '%'))")
+    List<Document> findByTitleContainingIgnoreCase(@Param("title") String title);
 }
 

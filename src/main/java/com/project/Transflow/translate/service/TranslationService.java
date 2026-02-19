@@ -57,7 +57,11 @@ public class TranslationService {
     }
 
     public String translate(String text, String targetLang, String sourceLang) {
-        return translateWithRetry(text, targetLang, sourceLang, 3); // 최대 3번 재시도
+        return translate(text, targetLang, sourceLang, null);
+    }
+
+    public String translate(String text, String targetLang, String sourceLang, String glossaryId) {
+        return translateWithRetry(text, targetLang, sourceLang, glossaryId, 3); // 최대 3번 재시도
     }
     
     /**
@@ -65,14 +69,18 @@ public class TranslationService {
      * API 호출 횟수를 대폭 줄여서 속도 향상
      */
     public List<String> translateBatch(List<String> texts, String targetLang, String sourceLang) {
+        return translateBatch(texts, targetLang, sourceLang, null);
+    }
+
+    public List<String> translateBatch(List<String> texts, String targetLang, String sourceLang, String glossaryId) {
         if (texts == null || texts.isEmpty()) {
             return new ArrayList<>();
         }
         
-        return translateBatchWithRetry(texts, targetLang, sourceLang, 3);
+        return translateBatchWithRetry(texts, targetLang, sourceLang, glossaryId, 3);
     }
     
-    private List<String> translateBatchWithRetry(List<String> texts, String targetLang, String sourceLang, int maxRetries) {
+    private List<String> translateBatchWithRetry(List<String> texts, String targetLang, String sourceLang, String glossaryId, int maxRetries) {
         int retryCount = 0;
         long baseDelay = 1000;
         int validTextCount = 0; // 변수를 try 블록 밖으로 이동
@@ -105,6 +113,9 @@ public class TranslationService {
                 formData.add("target_lang", targetLang.toUpperCase());
                 if (sourceLang != null && !sourceLang.isEmpty() && !sourceLang.equalsIgnoreCase("auto")) {
                     formData.add("source_lang", sourceLang.toUpperCase());
+                }
+                if (glossaryId != null && !glossaryId.isEmpty()) {
+                    formData.add("glossary_id", glossaryId);
                 }
 
                 String currentApiKey = getApiKey(); // API 키 동적 조회
@@ -184,7 +195,7 @@ public class TranslationService {
         throw new RuntimeException("배치 번역 실패: 최대 재시도 횟수 초과");
     }
     
-    private String translateWithRetry(String text, String targetLang, String sourceLang, int maxRetries) {
+    private String translateWithRetry(String text, String targetLang, String sourceLang, String glossaryId, int maxRetries) {
         int retryCount = 0;
         long baseDelay = 1000; // 1초부터 시작
         
@@ -210,6 +221,9 @@ public class TranslationService {
             formData.add("target_lang", targetLang.toUpperCase());
                 if (sourceLang != null && !sourceLang.isEmpty() && !sourceLang.equalsIgnoreCase("auto")) {
                 formData.add("source_lang", sourceLang.toUpperCase());
+            }
+            if (glossaryId != null && !glossaryId.isEmpty()) {
+                formData.add("glossary_id", glossaryId);
             }
 
             String currentApiKey = getApiKey(); // API 키 동적 조회

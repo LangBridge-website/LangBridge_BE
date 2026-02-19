@@ -12,4 +12,5 @@ public class TranslationRequest {
     private String url;
     private String targetLang; // EN, KO, JA 등
     private String sourceLang; // 선택사항 (auto-detect 가능)
+    private String glossaryId; // DeepL Glossary ID (선택사항)
 }

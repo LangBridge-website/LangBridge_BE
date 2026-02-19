@@ -35,6 +35,24 @@ public class TermDictionaryResponse {
     @Schema(description = "용어 설명", example = "Java 웹 애플리케이션 프레임워크")
     private String description;
 
+    @Schema(description = "구분(분야)", example = "과학")
+    private String category;
+
+    @Schema(description = "기사제목", example = "만연해있는 과학 사기가 계속 증가하고 있다.")
+    private String articleTitle;
+
+    @Schema(description = "출처(날짜)", example = "CEH, 2024. 2. 14")
+    private String articleSource;
+
+    @Schema(description = "기사링크", example = "https://creation.kr/Science/...")
+    private String articleLink;
+
+    @Schema(description = "메모")
+    private String memo;
+
+    @Schema(description = "DeepL Glossary ID", example = "def3a26b-3e84-45b3-84ae-0c0aaf3525f7")
+    private String deeplGlossaryId;
+
     @Schema(description = "생성자 정보")
     private CreatorInfo createdBy;
 
