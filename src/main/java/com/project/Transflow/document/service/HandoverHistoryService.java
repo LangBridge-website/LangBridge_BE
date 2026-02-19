@@ -91,7 +91,7 @@ public class HandoverHistoryService {
 
     @Transactional(readOnly = true)
     public Optional<HandoverHistory> findLatestByDocumentId(Long documentId) {
-        return handoverHistoryRepository.findLatestByDocumentId(documentId);
+        return handoverHistoryRepository.findFirstByDocument_IdOrderByCreatedAtDesc(documentId);
     }
 
     @Transactional(readOnly = true)
