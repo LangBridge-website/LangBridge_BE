@@ -1,5 +1,6 @@
 package com.project.Transflow.translate.service;
 
+import com.project.Transflow.settings.service.ApiKeyService;
 import com.project.Transflow.translate.dto.DeepLResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -18,16 +19,41 @@ import java.util.List;
 public class TranslationService {
 
     private final WebClient webClient;
-    private final String apiKey;
+    private final ApiKeyService apiKeyService;
+    private final String fallbackApiKey; // .env 파일의 백업 키 (DB에 없을 때 사용)
 
     public TranslationService(
             @Value("${deepl.api.url}") String apiUrl,
-            @Value("${deepl.api.key}") String apiKey) {
-        this.apiKey = apiKey;
+            @Value("${deepl.api.key:}") String fallbackApiKey,
+            ApiKeyService apiKeyService) {
+        this.fallbackApiKey = fallbackApiKey;
+        this.apiKeyService = apiKeyService;
         this.webClient = WebClient.builder()
                 .baseUrl(apiUrl)
                 .codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(10 * 1024 * 1024)) // 10MB
                 .build();
+    }
+
+    /**
+     * DeepL API 키 조회 (DB 우선, 없으면 .env 백업 키 사용)
+     */
+    private String getApiKey() {
+        try {
+            String dbApiKey = apiKeyService.getDecryptedDeepLApiKey();
+            if (dbApiKey != null && !dbApiKey.isEmpty()) {
+                return dbApiKey;
+            }
+        } catch (Exception e) {
+            log.warn("DB에서 API 키 조회 실패, 백업 키 사용: {}", e.getMessage());
+        }
+
+        // DB에 키가 없으면 .env 파일의 백업 키 사용
+        if (fallbackApiKey != null && !fallbackApiKey.isEmpty()) {
+            log.info(".env 백업 API 키 사용");
+            return fallbackApiKey;
+        }
+
+        throw new RuntimeException("DeepL API 키가 설정되지 않았습니다. 시스템 설정에서 API 키를 등록해주세요.");
     }
 
     public String translate(String text, String targetLang, String sourceLang) {
@@ -92,8 +118,9 @@ public class TranslationService {
                     formData.add("glossary_id", glossaryId);
                 }
 
+                String currentApiKey = getApiKey(); // API 키 동적 조회
                 DeepLResponse response = webClient.post()
-                        .header(HttpHeaders.AUTHORIZATION, "DeepL-Auth-Key " + apiKey)
+                        .header(HttpHeaders.AUTHORIZATION, "DeepL-Auth-Key " + currentApiKey)
                         .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                         .bodyValue(formData)
                         .retrieve()
@@ -199,8 +226,9 @@ public class TranslationService {
                 formData.add("glossary_id", glossaryId);
             }
 
+            String currentApiKey = getApiKey(); // API 키 동적 조회
             DeepLResponse response = webClient.post()
-                    .header(HttpHeaders.AUTHORIZATION, "DeepL-Auth-Key " + apiKey)
+                    .header(HttpHeaders.AUTHORIZATION, "DeepL-Auth-Key " + currentApiKey)
                     .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                     .bodyValue(formData)
                     .retrieve()

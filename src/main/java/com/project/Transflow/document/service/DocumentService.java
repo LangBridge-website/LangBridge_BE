@@ -5,6 +5,7 @@ import com.project.Transflow.document.dto.DocumentResponse;
 import com.project.Transflow.document.dto.UpdateDocumentRequest;
 import com.project.Transflow.document.entity.Document;
 import com.project.Transflow.document.repository.DocumentRepository;
+import com.project.Transflow.document.repository.DocumentVersionRepository;
 import com.project.Transflow.document.service.HandoverHistoryService;
 import com.project.Transflow.document.entity.HandoverHistory;
 import com.project.Transflow.user.entity.User;
@@ -17,6 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -26,6 +28,7 @@ import java.util.stream.Collectors;
 public class DocumentService {
 
     private final DocumentRepository documentRepository;
+    private final DocumentVersionRepository documentVersionRepository;
     private final UserRepository userRepository;
     private final HandoverHistoryService handoverHistoryService;
     private final ObjectMapper objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
@@ -48,27 +51,57 @@ public class DocumentService {
             log.warn("Authorization 헤더가 없어 기본 사용자 사용: {}", createdBy.getId());
         }
 
+        // 같은 URL의 문서가 있는지 확인 (DRAFT 또는 PENDING_TRANSLATION 상태인 경우)
+        List<Document> existingDocs = documentRepository.findByOriginalUrlOrderByCreatedAtDesc(request.getOriginalUrl());
+        Optional<Document> existingDoc = existingDocs.stream()
+                .filter(doc -> "DRAFT".equals(doc.getStatus()) || "PENDING_TRANSLATION".equals(doc.getStatus()))
+                .findFirst();
+
         // status가 없으면 기본값 DRAFT 사용
         String status = (request.getStatus() != null && !request.getStatus().isEmpty()) 
                 ? request.getStatus() 
                 : "DRAFT";
         
-        Document document = Document.builder()
-                .title(request.getTitle())
-                .originalUrl(request.getOriginalUrl())
-                .sourceLang(request.getSourceLang())
-                .targetLang(request.getTargetLang())
-                .categoryId(request.getCategoryId())
-                .status(status)
-                .estimatedLength(request.getEstimatedLength())
-                .createdBy(createdBy)
-                .build();
+        Document document;
+        if (existingDoc.isPresent() && ("DRAFT".equals(status) || "PENDING_TRANSLATION".equals(status))) {
+            // 같은 URL의 DRAFT 또는 PENDING_TRANSLATION 문서가 있으면 제목 업데이트
+            Document docToUpdate = existingDoc.get();
+            String oldStatus = docToUpdate.getStatus();
+            docToUpdate.setTitle(request.getTitle());
+            docToUpdate.setStatus(status); // 상태도 업데이트 (Step 6에서 선택한 상태로)
+            if (request.getCategoryId() != null) {
+                docToUpdate.setCategoryId(request.getCategoryId());
+            }
+            if (request.getEstimatedLength() != null) {
+                docToUpdate.setEstimatedLength(request.getEstimatedLength());
+            }
+            if (request.getDraftData() != null) {
+                docToUpdate.setDraftData(request.getDraftData());
+            }
+            docToUpdate.setLastModifiedBy(createdBy);
+            document = documentRepository.save(docToUpdate);
+            log.info("기존 문서 제목 업데이트: {} (id: {}, 상태: {} -> {})", 
+                    document.getTitle(), document.getId(), oldStatus, status);
+        } else {
+            // 새 문서 생성
+            document = Document.builder()
+                    .title(request.getTitle())
+                    .originalUrl(request.getOriginalUrl())
+                    .sourceLang(request.getSourceLang())
+                    .targetLang(request.getTargetLang())
+                    .categoryId(request.getCategoryId())
+                    .status(status)
+                    .estimatedLength(request.getEstimatedLength())
+                    .draftData(request.getDraftData())
+                    .createdBy(createdBy)
+                    .build();
+            
+            log.info("문서 생성 - 상태: {}", status);
+            document = documentRepository.save(document);
+            log.info("문서 생성: {} (id: {})", document.getTitle(), document.getId());
+        }
         
-        log.info("문서 생성 - 상태: {}", status);
-
-        Document saved = documentRepository.save(document);
-        log.info("문서 생성: {} (id: {})", saved.getTitle(), saved.getId());
-        return toResponse(saved);
+        return toResponse(document);
     }
 
     @Transactional(readOnly = true)
@@ -79,7 +112,37 @@ public class DocumentService {
 
     @Transactional(readOnly = true)
     public List<DocumentResponse> findAll() {
-        return documentRepository.findAll().stream()
+        List<Document> allDocs = documentRepository.findAll();
+        // 같은 URL의 문서 중 최신 버전만 선택
+        Map<String, Document> latestDocsByUrl = new java.util.HashMap<>();
+        for (Document doc : allDocs) {
+            String url = doc.getOriginalUrl();
+            Document existing = latestDocsByUrl.get(url);
+            if (existing == null || doc.getUpdatedAt().isAfter(existing.getUpdatedAt())) {
+                latestDocsByUrl.put(url, doc);
+            }
+        }
+        return latestDocsByUrl.values().stream()
+                .map(this::toResponse)
+                .collect(Collectors.toList());
+    }
+
+    @Transactional(readOnly = true)
+    public List<DocumentResponse> findAllExcludingPendingTranslation() {
+        // PENDING_TRANSLATION 제외는 더 이상 필요 없지만, 호환성을 위해 유지
+        // 같은 URL의 문서 중 최신 버전만 선택
+        List<Document> allDocs = documentRepository.findAll().stream()
+                .filter(doc -> !"PENDING_TRANSLATION".equals(doc.getStatus()))
+                .collect(Collectors.toList());
+        Map<String, Document> latestDocsByUrl = new java.util.HashMap<>();
+        for (Document doc : allDocs) {
+            String url = doc.getOriginalUrl();
+            Document existing = latestDocsByUrl.get(url);
+            if (existing == null || doc.getUpdatedAt().isAfter(existing.getUpdatedAt())) {
+                latestDocsByUrl.put(url, doc);
+            }
+        }
+        return latestDocsByUrl.values().stream()
                 .map(this::toResponse)
                 .collect(Collectors.toList());
     }
@@ -141,6 +204,9 @@ public class DocumentService {
         if (request.getEstimatedLength() != null) {
             document.setEstimatedLength(request.getEstimatedLength());
         }
+        if (request.getDraftData() != null) {
+            document.setDraftData(request.getDraftData());
+        }
 
         document.setLastModifiedBy(lastModifiedBy);
 
@@ -159,6 +225,10 @@ public class DocumentService {
     }
 
     private DocumentResponse toResponse(Document document) {
+        // 버전 개수 조회
+        long versionCount = documentVersionRepository.countByDocument_Id(document.getId());
+        boolean hasVersions = versionCount > 0;
+        
         DocumentResponse.DocumentResponseBuilder builder = DocumentResponse.builder()
                 .id(document.getId())
                 .title(document.getTitle())
@@ -169,6 +239,9 @@ public class DocumentService {
                 .status(document.getStatus())
                 .currentVersionId(document.getCurrentVersionId())
                 .estimatedLength(document.getEstimatedLength())
+                .versionCount(versionCount)
+                .hasVersions(hasVersions)
+                .draftData(document.getDraftData())
                 .createdAt(document.getCreatedAt())
                 .updatedAt(document.getUpdatedAt());
 

@@ -46,6 +46,9 @@ public class Document {
     @Column
     private Integer estimatedLength; // 예상 분량 (글자 수)
 
+    @Column(columnDefinition = "LONGTEXT")
+    private String draftData; // 임시저장 데이터 (JSON) - draft 상태와 currentStep 포함
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "created_by", nullable = false)
     private User createdBy; // 생성자 (관리자)

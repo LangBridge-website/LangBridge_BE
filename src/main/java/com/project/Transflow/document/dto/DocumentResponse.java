@@ -44,6 +44,15 @@ public class DocumentResponse {
     @Schema(description = "예상 분량", example = "5000")
     private Integer estimatedLength;
 
+    @Schema(description = "버전 개수", example = "2")
+    private Long versionCount;
+
+    @Schema(description = "버전 존재 여부", example = "true")
+    private Boolean hasVersions;
+
+    @Schema(description = "임시저장 데이터 (JSON)", example = "{\"currentStep\": 2, \"draft\": {...}}")
+    private String draftData;
+
     @Schema(description = "생성자 정보")
     private CreatorInfo createdBy;
 

@@ -85,6 +85,8 @@ public class DocumentController {
             @RequestParam(required = false) String status,
             @Parameter(description = "카테고리 ID 필터", example = "1")
             @RequestParam(required = false) Long categoryId,
+            @Parameter(description = "PENDING_TRANSLATION 상태 제외 여부", example = "true")
+            @RequestParam(required = false, defaultValue = "false") Boolean excludePendingTranslation) {
             @Parameter(description = "제목 검색", example = "문서 제목")
             @RequestParam(required = false) String title) {
 
@@ -116,7 +118,12 @@ public class DocumentController {
         } else if (categoryId != null) {
             documents = documentService.findByCategoryId(categoryId);
         } else {
-            documents = documentService.findAll();
+            // excludePendingTranslation이 true이면 PENDING_TRANSLATION 제외
+            if (excludePendingTranslation) {
+                documents = documentService.findAllExcludingPendingTranslation();
+            } else {
+                documents = documentService.findAll();
+            }
         }
 
         return ResponseEntity.ok(documents);

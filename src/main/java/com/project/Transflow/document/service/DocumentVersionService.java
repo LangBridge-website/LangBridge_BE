@@ -127,6 +127,21 @@ public class DocumentVersionService {
         return toResponse(version);
     }
 
+    @Transactional
+    public void deleteAllVersionsByDocumentId(Long documentId) {
+        List<DocumentVersion> versions = documentVersionRepository.findByDocument_Id(documentId);
+        if (!versions.isEmpty()) {
+            documentVersionRepository.deleteAll(versions);
+            log.info("문서의 모든 버전 삭제: 문서 ID {}, 삭제된 버전 수 {}", documentId, versions.size());
+            
+            // Document의 current_version_id도 null로 설정
+            Document document = documentRepository.findById(documentId)
+                    .orElseThrow(() -> new IllegalArgumentException("문서를 찾을 수 없습니다: " + documentId));
+            document.setCurrentVersionId(null);
+            documentRepository.save(document);
+        }
+    }
+
     /**
      * 다음 버전 번호 계산
      * - ORIGINAL: 0

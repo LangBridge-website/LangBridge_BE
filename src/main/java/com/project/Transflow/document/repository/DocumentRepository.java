@@ -16,6 +16,8 @@ public interface DocumentRepository extends JpaRepository<Document, Long> {
     List<Document> findByCreatedBy_Id(Long createdById);
     List<Document> findByStatusAndCategoryId(String status, Long categoryId);
     Optional<Document> findByIdAndStatus(Long id, String status);
+    List<Document> findByOriginalUrl(String originalUrl);
+    List<Document> findByOriginalUrlOrderByCreatedAtDesc(String originalUrl);
     
     // 제목으로 검색 (대소문자 구분 없음)
     @Query("SELECT d FROM Document d WHERE LOWER(d.title) LIKE LOWER(CONCAT('%', :title, '%'))")
