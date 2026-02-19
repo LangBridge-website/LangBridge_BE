@@ -86,7 +86,7 @@ public class DocumentController {
             @Parameter(description = "카테고리 ID 필터", example = "1")
             @RequestParam(required = false) Long categoryId,
             @Parameter(description = "PENDING_TRANSLATION 상태 제외 여부", example = "true")
-            @RequestParam(required = false, defaultValue = "false") Boolean excludePendingTranslation) {
+            @RequestParam(required = false, defaultValue = "false") Boolean excludePendingTranslation,
             @Parameter(description = "제목 검색", example = "문서 제목")
             @RequestParam(required = false) String title) {
 
