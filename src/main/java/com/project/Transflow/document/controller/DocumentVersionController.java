@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.*;
 
 import javax.validation.Valid;
 import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @RestController
@@ -182,6 +183,36 @@ public class DocumentVersionController {
             return ResponseEntity.ok(response);
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().build();
+        }
+    }
+
+    @Operation(
+            summary = "문서의 모든 버전 삭제",
+            description = "문서의 모든 버전을 삭제합니다. 권한: 관리자 이상 (roleLevel 1, 2)"
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "삭제 성공"),
+            @ApiResponse(responseCode = "403", description = "권한 없음 (관리자 권한 필요)"),
+            @ApiResponse(responseCode = "404", description = "문서를 찾을 수 없음")
+    })
+    @DeleteMapping
+    public ResponseEntity<Map<String, Object>> deleteAllVersions(
+            @Parameter(hidden = true) @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @Parameter(description = "문서 ID", required = true, example = "1")
+            @PathVariable Long documentId) {
+
+        // 권한 체크 (관리자 이상)
+        if (authHeader != null && !authHeader.isEmpty()) {
+            if (!adminAuthUtil.isAdminOrAbove(authHeader)) {
+                return ResponseEntity.status(org.springframework.http.HttpStatus.FORBIDDEN).build();
+            }
+        }
+
+        try {
+            documentVersionService.deleteAllVersionsByDocumentId(documentId);
+            return ResponseEntity.ok(Map.of("success", true, "message", "모든 버전이 삭제되었습니다."));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.notFound().build();
         }
     }
 }

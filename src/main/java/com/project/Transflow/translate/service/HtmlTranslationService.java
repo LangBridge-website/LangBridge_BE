@@ -110,8 +110,8 @@ public class HtmlTranslationService {
             // React나 다른 프레임워크의 초기화 코드가 있는지 확인하고 제거
             // window 객체를 사용하는 인라인 코드 제거를 위해 <script> 태그는 이미 제거됨
             
-            // 번역된 텍스트로 HTML 재구성
-            String translatedHtml = doc.html();
+            // 번역된 텍스트로 HTML 재구성 (전체 문서 포함 - CSS 보존)
+            String translatedHtml = doc.outerHtml();
             
             // 디버깅: 번역이 제대로 적용되었는지 확인
             // 원본 텍스트가 남아있는지 체크 (일부만)

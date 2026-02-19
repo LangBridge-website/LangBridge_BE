@@ -70,8 +70,14 @@ logging:
   level:
     com.project.Transflow: DEBUG
     org.springframework.security: DEBUG
-#deepL
+
+# 암호화 설정
+encryption:
+  secret:
+    key: ${ENCRYPTION_SECRET_KEY}
+
+# DeepL API 설정
 deepl:
   api:
-    key: ${APIKEY}
-    url: ${APIURL}
+    url: ${DEEPL_API_URL:https://api-free.deepl.com/v2/translate}
+    key: ${DEEPL_API_KEY:}
