@@ -21,7 +21,9 @@ import org.springframework.web.bind.annotation.*;
 
 import javax.validation.Valid;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Slf4j
 @RestController
@@ -126,6 +128,39 @@ public class AdminController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", "사용자 레벨 변경 중 오류가 발생했습니다."));
         }
+    }
+
+    @Operation(
+            summary = "사용자 목록 조회",
+            description = "모든 사용자 목록을 조회합니다. 권한: 관리자 이상 (roleLevel 1, 2)"
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "조회 성공"),
+            @ApiResponse(responseCode = "403", description = "권한 없음 (관리자 권한 필요)")
+    })
+    @GetMapping("/users")
+    public ResponseEntity<List<Map<String, Object>>> getAllUsers(
+            @Parameter(hidden = true) @RequestHeader("Authorization") String authHeader) {
+        
+        // 권한 체크
+        if (!adminAuthUtil.isAdminOrAbove(authHeader)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+
+        List<Map<String, Object>> users = adminService.findAllUsers().stream()
+                .map(user -> {
+                    Map<String, Object> userMap = new HashMap<>();
+                    userMap.put("id", user.getId());
+                    userMap.put("email", user.getEmail());
+                    userMap.put("name", user.getName());
+                    userMap.put("roleLevel", user.getRoleLevel());
+                    userMap.put("profileImage", user.getProfileImage() != null ? user.getProfileImage() : "");
+                    userMap.put("createdAt", user.getCreatedAt());
+                    return userMap;
+                })
+                .collect(Collectors.toList());
+
+        return ResponseEntity.ok(users);
     }
 }
 

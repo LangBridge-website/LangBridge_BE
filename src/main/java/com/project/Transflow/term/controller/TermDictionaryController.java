@@ -1,7 +1,9 @@
 package com.project.Transflow.term.controller;
 
 import com.project.Transflow.admin.util.AdminAuthUtil;
+import com.project.Transflow.term.dto.BatchCreateTermRequest;
 import com.project.Transflow.term.dto.CreateTermRequest;
+import com.project.Transflow.term.dto.TermDictionaryPageResponse;
 import com.project.Transflow.term.dto.TermDictionaryResponse;
 import com.project.Transflow.term.dto.UpdateTermRequest;
 import com.project.Transflow.term.service.TermDictionaryService;
@@ -20,7 +22,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import javax.validation.Valid;
-import java.util.List;
 import java.util.Map;
 
 @Slf4j
@@ -68,32 +69,27 @@ public class TermDictionaryController {
     }
 
     @Operation(
-            summary = "용어 목록 조회",
-            description = "용어 사전 목록을 조회합니다. 언어별 필터링 가능"
+            summary = "용어 목록 조회 (페이지네이션)",
+            description = "용어 사전 목록을 페이지네이션으로 조회합니다. 언어별 필터링 가능"
     )
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "조회 성공")
+            @ApiResponse(responseCode = "200", description = "조회 성공",
+                    content = @Content(schema = @Schema(implementation = TermDictionaryPageResponse.class)))
     })
     @GetMapping
-    public ResponseEntity<List<TermDictionaryResponse>> getAllTerms(
+    public ResponseEntity<TermDictionaryPageResponse> getAllTerms(
             @Parameter(description = "원문 언어 필터", example = "EN")
             @RequestParam(required = false) String sourceLang,
             @Parameter(description = "번역 언어 필터", example = "KO")
-            @RequestParam(required = false) String targetLang) {
+            @RequestParam(required = false) String targetLang,
+            @Parameter(description = "페이지 번호 (0부터 시작)", example = "0")
+            @RequestParam(defaultValue = "0") int page,
+            @Parameter(description = "페이지 크기", example = "20")
+            @RequestParam(defaultValue = "20") int size) {
 
-        List<TermDictionaryResponse> terms;
-
-        if (sourceLang != null && targetLang != null) {
-            terms = termDictionaryService.findByLanguages(sourceLang, targetLang);
-        } else if (sourceLang != null) {
-            terms = termDictionaryService.findBySourceLang(sourceLang);
-        } else if (targetLang != null) {
-            terms = termDictionaryService.findByTargetLang(targetLang);
-        } else {
-            terms = termDictionaryService.findAll();
-        }
-
-        return ResponseEntity.ok(terms);
+        TermDictionaryPageResponse response = termDictionaryService.findAllPaged(
+                sourceLang, targetLang, page, size);
+        return ResponseEntity.ok(response);
     }
 
     @Operation(
@@ -166,6 +162,48 @@ public class TermDictionaryController {
             return ResponseEntity.ok(response);
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().build();
+        }
+    }
+
+    @Operation(
+            summary = "용어 대량 추가",
+            description = "TSV 형식으로 여러 용어를 한 번에 추가합니다. 형식: 원문\\t번역\\t설명 (각 줄에 하나의 용어). 권한: 관리자 이상 (roleLevel 1, 2)"
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "대량 추가 완료 (성공/실패 개수 포함)"),
+            @ApiResponse(responseCode = "400", description = "잘못된 요청"),
+            @ApiResponse(responseCode = "403", description = "권한 없음 (관리자 권한 필요)")
+    })
+    @PostMapping("/batch")
+    public ResponseEntity<Map<String, Object>> createTermsBatch(
+            @Parameter(hidden = true) @RequestHeader("Authorization") String authHeader,
+            @Valid @RequestBody BatchCreateTermRequest request) {
+
+        // 권한 체크 (관리자 이상)
+        if (!adminAuthUtil.isAdminOrAbove(authHeader)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+
+        Long createdById = adminAuthUtil.getUserIdFromToken(authHeader);
+        if (createdById == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+
+        try {
+            TermDictionaryService.BatchCreateTermResult result = 
+                    termDictionaryService.createTermsBatch(request, createdById);
+            
+            Map<String, Object> response = Map.of(
+                    "success", true,
+                    "successCount", result.getSuccessCount(),
+                    "failedCount", result.getFailedCount(),
+                    "errors", result.getErrors()
+            );
+            
+            return ResponseEntity.ok(response);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("success", false, "message", e.getMessage()));
         }
     }
 

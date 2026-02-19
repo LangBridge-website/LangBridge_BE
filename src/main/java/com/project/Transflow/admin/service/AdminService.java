@@ -7,6 +7,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
+
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -50,6 +52,14 @@ public class AdminService {
         User saved = userRepository.save(user);
         log.info("사용자 역할 레벨 변경: {} (email: {}, newRoleLevel: {})", user.getEmail(), email, newRoleLevel);
         return saved;
+    }
+
+    /**
+     * 모든 사용자 목록 조회
+     */
+    @Transactional(readOnly = true)
+    public List<User> findAllUsers() {
+        return userRepository.findAll();
     }
 }
 
