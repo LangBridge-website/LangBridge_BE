@@ -1,6 +1,7 @@
 package com.project.Transflow.term.service;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.project.Transflow.settings.service.ApiKeyService;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -19,12 +20,12 @@ import java.util.stream.Collectors;
 public class DeepLGlossaryService {
 
     private final WebClient webClient;
-    private final String apiKey;
+    private final ApiKeyService apiKeyService;
 
     public DeepLGlossaryService(
             @Value("${deepl.api.url}") String apiUrl,
-            @Value("${deepl.api.key}") String apiKey) {
-        this.apiKey = apiKey;
+            ApiKeyService apiKeyService) {
+        this.apiKeyService = apiKeyService;
         
         // 번역 API URL에서 /v2/translate 제거하여 base URL만 사용
         // 번역 API: https://api-free.deepl.com/v2/translate
@@ -38,6 +39,22 @@ public class DeepLGlossaryService {
                 .baseUrl(baseUrl)
                 .codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(10 * 1024 * 1024)) // 10MB
                 .build();
+    }
+
+    /**
+     * DeepL API 키 조회 (DB에서 복호화)
+     */
+    private String getApiKey() {
+        try {
+            String dbApiKey = apiKeyService.getDecryptedDeepLApiKey();
+            if (dbApiKey != null && !dbApiKey.isEmpty()) {
+                return dbApiKey;
+            }
+        } catch (Exception e) {
+            log.error("DB에서 API 키 조회 실패: {}", e.getMessage());
+        }
+        
+        throw new RuntimeException("DeepL API 키가 설정되지 않았습니다. 시스템 설정에서 API 키를 등록해주세요.");
     }
 
     /**
@@ -68,7 +85,7 @@ public class DeepLGlossaryService {
 
             CreateGlossaryResponse response = webClient.post()
                     .uri("/v3/glossaries")
-                    .header(HttpHeaders.AUTHORIZATION, "DeepL-Auth-Key " + apiKey)
+                    .header(HttpHeaders.AUTHORIZATION, "DeepL-Auth-Key " + getApiKey())
                     .contentType(MediaType.APPLICATION_JSON)
                     .bodyValue(request)
                     .retrieve()
@@ -122,7 +139,7 @@ public class DeepLGlossaryService {
 
             DictionaryUpdateResponse response = webClient.put()
                     .uri("/v3/glossaries/{glossaryId}/dictionaries", glossaryId)
-                    .header(HttpHeaders.AUTHORIZATION, "DeepL-Auth-Key " + apiKey)
+                    .header(HttpHeaders.AUTHORIZATION, "DeepL-Auth-Key " + getApiKey())
                     .contentType(MediaType.APPLICATION_JSON)
                     .bodyValue(request)
                     .retrieve()
@@ -156,7 +173,7 @@ public class DeepLGlossaryService {
         try {
             webClient.delete()
                     .uri("/v3/glossaries/{glossaryId}", glossaryId)
-                    .header(HttpHeaders.AUTHORIZATION, "DeepL-Auth-Key " + apiKey)
+                    .header(HttpHeaders.AUTHORIZATION, "DeepL-Auth-Key " + getApiKey())
                     .retrieve()
                     .toBodilessEntity()
                     .timeout(Duration.ofSeconds(30))
@@ -184,7 +201,7 @@ public class DeepLGlossaryService {
         try {
             CreateGlossaryResponse response = webClient.get()
                     .uri("/v3/glossaries/{glossaryId}", glossaryId)
-                    .header(HttpHeaders.AUTHORIZATION, "DeepL-Auth-Key " + apiKey)
+                    .header(HttpHeaders.AUTHORIZATION, "DeepL-Auth-Key " + getApiKey())
                     .retrieve()
                     .bodyToMono(CreateGlossaryResponse.class)
                     .timeout(Duration.ofSeconds(30))
