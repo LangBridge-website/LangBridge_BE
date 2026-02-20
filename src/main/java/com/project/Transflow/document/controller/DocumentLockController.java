@@ -265,16 +265,11 @@ public class DocumentLockController {
         // 인계 히스토리 생성 (옵션 2: 별도 엔티티로 관리)
         handoverHistoryService.createHandover(documentId, request, userId);
 
-        // 락 해제
+        // 락 해제 (상태 변경은 관리자가 인계 요청 문서에서 "번역 대기로 전환" 시 수행)
         var lockOpt = lockService.getLockStatus(documentId);
         if (lockOpt.isPresent()) {
             lockService.releaseLock(documentId, userId);
         }
-
-        // 문서 상태를 PENDING_TRANSLATION으로 변경
-        UpdateDocumentRequest updateRequest = new UpdateDocumentRequest();
-        updateRequest.setStatus("PENDING_TRANSLATION");
-        documentService.updateDocument(documentId, updateRequest, userId);
 
         return ResponseEntity.ok(Map.of("success", true, "message", "인계가 완료되었습니다."));
     }

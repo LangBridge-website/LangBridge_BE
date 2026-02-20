@@ -9,6 +9,7 @@ import com.project.Transflow.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -60,8 +61,16 @@ public class DocumentLockService {
             log.warn("userId가 null이어서 기본 사용자 사용: {}", user.getId());
         }
 
+        // PENDING_TRANSLATION 문서는 인계 후 정리되지 않은 스테일 락이 있을 수 있으므로 선제 삭제
+        if ("PENDING_TRANSLATION".equals(document.getStatus())) {
+            int deleted = lockRepository.deleteAllByDocumentId(documentId);
+            if (deleted > 0) {
+                log.warn("⚠️ PENDING_TRANSLATION 문서의 스테일 락 {}건 선제 삭제: documentId={}", deleted, documentId);
+            }
+        }
+
         // 이미 락이 있는지 확인
-        Optional<DocumentLock> existingLock = lockRepository.findByDocumentId(documentId);
+        Optional<DocumentLock> existingLock = lockRepository.findFirstByDocument_Id(documentId);
         if (existingLock.isPresent()) {
             DocumentLock lock = existingLock.get();
             // userId가 null이면 비교하지 않고 기존 락 반환 (개발 단계)
@@ -69,7 +78,7 @@ public class DocumentLockService {
                 log.info("✅ 이미 같은 사용자가 락을 보유하고 있습니다: documentId={}, userId={}", documentId, userId);
                 return lock;
             }
-            // 다른 사용자가 락을 가지고 있으면 예외 발생
+            // IN_TRANSLATION 등 다른 상태에서 다른 사용자가 작업 중
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
                     "이 문서는 다른 사용자가 작업 중입니다: " + lock.getLockedBy().getName()
@@ -82,10 +91,9 @@ public class DocumentLockService {
                     .document(document)
                     .lockedBy(user)
                     .build();
-            
-            // flush를 명시적으로 호출하여 즉시 DB에 반영
+
             DocumentLock saved = lockRepository.saveAndFlush(lock);
-            log.info("✅ 문서 락 DB 저장 완료: documentId={}, userId={}, lockId={}", 
+            log.info("✅ 문서 락 DB 저장 완료: documentId={}, userId={}, lockId={}",
                     documentId, userId, saved.getId());
 
             // 문서 상태를 IN_TRANSLATION으로 변경
@@ -94,29 +102,18 @@ public class DocumentLockService {
             log.info("✅ 문서 상태 업데이트 완료: documentId={}, status=IN_TRANSLATION", documentId);
 
             return saved;
-            
+
         } catch (org.springframework.dao.DataIntegrityViolationException e) {
-            // 유니크 제약조건 위반 (다른 요청이 먼저 락을 생성함)
+            // 유니크 제약조건 위반
+            // ⚠️ 중요: DataIntegrityViolationException 발생 후 Hibernate 세션이 오염됨
+            //    이 catch 블록에서 DB 쿼리를 실행하면 AssertionFailure(null id) 가 발생하므로
+            //    절대 DB 조회를 하지 말고 즉시 예외를 던져야 함
             log.warn("⚠️ 유니크 제약조건 위반 (다른 요청이 먼저 락을 획득): documentId={}", documentId);
-            // 다시 조회하여 기존 락 반환
-            Optional<DocumentLock> newLock = lockRepository.findByDocumentId(documentId);
-            if (newLock.isPresent()) {
-                DocumentLock lock = newLock.get();
-                if (lock.getLockedBy().getId().equals(user.getId())) {
-                    log.info("✅ 재조회 후 같은 사용자의 락 발견: documentId={}", documentId);
-                    return lock;
-                } else {
-                    throw new ResponseStatusException(
-                            HttpStatus.CONFLICT,
-                            "이 문서는 다른 사용자가 작업 중입니다: " + lock.getLockedBy().getName()
-                    );
-                }
-            }
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
-                    "문서 락을 획득할 수 없습니다. 다른 사용자가 작업 중일 수 있습니다."
+                    "문서 락을 획득할 수 없습니다. 잠시 후 다시 시도해주세요."
             );
-        } catch (org.hibernate.exception.LockAcquisitionException | 
+        } catch (org.hibernate.exception.LockAcquisitionException |
                  org.springframework.dao.CannotAcquireLockException e) {
             log.error("❌ DB 락 획득 실패: documentId={}, userId={}", documentId, userId, e);
             throw new ResponseStatusException(
@@ -134,7 +131,7 @@ public class DocumentLockService {
 
     @Transactional
     public void releaseLock(Long documentId, Long userId) {
-        Optional<DocumentLock> lockOpt = lockRepository.findByDocumentId(documentId);
+        Optional<DocumentLock> lockOpt = lockRepository.findFirstByDocument_Id(documentId);
         if (lockOpt.isEmpty()) {
             log.warn("락이 존재하지 않습니다: documentId={}", documentId);
             return;
@@ -166,7 +163,7 @@ public class DocumentLockService {
             log.debug("🔍 락 상태 조회 시작: documentId={}", documentId);
             
             // LAZY 로딩 문제 해결을 위해 JOIN FETCH 사용
-            Optional<DocumentLock> lockOpt = lockRepository.findByDocumentIdWithUser(documentId);
+            Optional<DocumentLock> lockOpt = lockRepository.findByDocumentIdWithUserList(documentId, PageRequest.of(0, 1)).stream().findFirst();
             
             if (lockOpt.isPresent()) {
                 DocumentLock lock = lockOpt.get();
@@ -207,7 +204,7 @@ public class DocumentLockService {
 
     @Transactional(readOnly = true)
     public boolean isLockedByUser(Long documentId, Long userId) {
-        Optional<DocumentLock> lockOpt = lockRepository.findByDocumentId(documentId);
+        Optional<DocumentLock> lockOpt = lockRepository.findFirstByDocument_Id(documentId);
         if (lockOpt.isEmpty()) {
             return false;
         }
