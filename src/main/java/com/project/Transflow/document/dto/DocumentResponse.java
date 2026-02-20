@@ -41,6 +41,9 @@ public class DocumentResponse {
     @Schema(description = "현재 활성 버전 ID", example = "1")
     private Long currentVersionId;
 
+    @Schema(description = "현재 활성 버전 번호", example = "2")
+    private Integer currentVersionNumber;
+
     @Schema(description = "예상 분량", example = "5000")
     private Integer estimatedLength;
 

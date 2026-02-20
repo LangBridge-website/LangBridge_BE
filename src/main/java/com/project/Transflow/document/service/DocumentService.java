@@ -229,6 +229,13 @@ public class DocumentService {
         long versionCount = documentVersionRepository.countByDocument_Id(document.getId());
         boolean hasVersions = versionCount > 0;
         
+        Integer currentVersionNumber = null;
+        if (document.getCurrentVersionId() != null) {
+            currentVersionNumber = documentVersionRepository.findById(document.getCurrentVersionId())
+                    .map(v -> v.getVersionNumber())
+                    .orElse(null);
+        }
+
         DocumentResponse.DocumentResponseBuilder builder = DocumentResponse.builder()
                 .id(document.getId())
                 .title(document.getTitle())
@@ -238,6 +245,7 @@ public class DocumentService {
                 .categoryId(document.getCategoryId())
                 .status(document.getStatus())
                 .currentVersionId(document.getCurrentVersionId())
+                .currentVersionNumber(currentVersionNumber)
                 .estimatedLength(document.getEstimatedLength())
                 .versionCount(versionCount)
                 .hasVersions(hasVersions)

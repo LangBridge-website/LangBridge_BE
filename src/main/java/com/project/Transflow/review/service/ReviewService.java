@@ -310,6 +310,16 @@ public class ReviewService {
                     .build());
         }
 
+        // 담당 번역가 정보 (검토 대상 버전의 생성자)
+        if (review.getDocumentVersion() != null && review.getDocumentVersion().getCreatedBy() != null) {
+            var createdBy = review.getDocumentVersion().getCreatedBy();
+            builder.translator(ReviewResponse.TranslatorInfo.builder()
+                    .id(createdBy.getId())
+                    .email(createdBy.getEmail())
+                    .name(createdBy.getName())
+                    .build());
+        }
+
         return builder.build();
     }
 }

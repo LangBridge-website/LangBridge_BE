@@ -30,6 +30,9 @@ public class ReviewResponse {
     @Schema(description = "리뷰어 정보")
     private ReviewerInfo reviewer;
 
+    @Schema(description = "담당 번역가 정보 (검토 대상 버전 생성자)")
+    private TranslatorInfo translator;
+
     @Schema(description = "상태", example = "APPROVED")
     private String status;
 
@@ -102,6 +105,23 @@ public class ReviewResponse {
         private String email;
 
         @Schema(description = "리뷰어 이름", example = "관리자")
+        private String name;
+    }
+
+    @Getter
+    @Setter
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    @Schema(description = "담당 번역가 정보")
+    public static class TranslatorInfo {
+        @Schema(description = "번역가 ID", example = "2")
+        private Long id;
+
+        @Schema(description = "번역가 이메일", example = "translator@example.com")
+        private String email;
+
+        @Schema(description = "번역가 이름", example = "번역봉사자")
         private String name;
     }
 }
