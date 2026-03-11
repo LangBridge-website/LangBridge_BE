@@ -91,13 +91,18 @@ public class DocumentController {
             @RequestParam(required = false) Long categoryId,
             @Parameter(description = "PENDING_TRANSLATION 상태 제외 여부", example = "true")
             @RequestParam(required = false, defaultValue = "false") Boolean excludePendingTranslation,
+            @Parameter(description = "원문만 조회(복사본 제외). 번역 대기 목록에서 원문이 사라지지 않도록 할 때 사용", example = "true")
+            @RequestParam(required = false, defaultValue = "false") Boolean sourcesOnly,
             @Parameter(description = "제목 검색", example = "문서 제목")
             @RequestParam(required = false) String title) {
 
         List<DocumentResponse> documents;
         
+        // 원문만 조회: URL 중복 제거 없이 원문만 반환 (번역 대기 목록에서 누가 작업을 시작해도 원문이 계속 보이도록)
+        if (Boolean.TRUE.equals(sourcesOnly)) {
+            documents = documentService.findSourceDocumentsOnly();
+        } else if (title != null && !title.trim().isEmpty()) {
         // 제목 검색이 있으면 검색 결과 사용
-        if (title != null && !title.trim().isEmpty()) {
             if (status != null && "PENDING_TRANSLATION".equals(status)) {
                 documents = documentService.findPendingTranslationSourcesNotFinalized().stream()
                         .filter(doc -> doc.getTitle() != null && doc.getTitle().toLowerCase().contains(title.trim().toLowerCase()))
@@ -158,6 +163,19 @@ public class DocumentController {
         return documentService.findById(id)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
+    }
+
+    @Operation(
+            summary = "원문의 복사본 목록 조회",
+            description = "해당 원문에서 파생된 복사본(다른 사람 작업 중인 번역) 목록을 조회합니다."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "조회 성공")
+    })
+    @GetMapping("/{sourceDocumentId}/copies")
+    public ResponseEntity<List<DocumentResponse>> getCopiesBySourceId(
+            @Parameter(description = "원문 문서 ID", required = true) @PathVariable Long sourceDocumentId) {
+        return ResponseEntity.ok(documentService.findCopiesBySourceDocumentId(sourceDocumentId));
     }
 
     @Operation(

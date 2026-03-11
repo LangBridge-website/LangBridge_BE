@@ -171,6 +171,22 @@ public class DocumentService {
                 .collect(Collectors.toList());
     }
 
+    /** 원문 ID로 해당 원문의 복사본(다른 사람 작업물) 목록 조회 */
+    @Transactional(readOnly = true)
+    public List<DocumentResponse> findCopiesBySourceDocumentId(Long sourceDocumentId) {
+        return documentRepository.findBySourceDocument_IdOrderByCreatedAtDesc(sourceDocumentId).stream()
+                .map(this::toResponse)
+                .collect(Collectors.toList());
+    }
+
+    /** 원문만 조회 (복사본 제외). URL 기준 중복 제거 없이 원문을 항상 노출할 때 사용. */
+    @Transactional(readOnly = true)
+    public List<DocumentResponse> findSourceDocumentsOnly() {
+        return documentRepository.findBySourceDocumentIsNull().stream()
+                .map(this::toResponse)
+                .collect(Collectors.toList());
+    }
+
     @Transactional(readOnly = true)
     public List<DocumentResponse> findByCategoryId(Long categoryId) {
         return documentRepository.findByCategoryId(categoryId).stream()
