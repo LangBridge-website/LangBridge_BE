@@ -6,7 +6,7 @@ RUN gradle dependencies --no-daemon || true
 COPY src ./src
 RUN gradle bootJar --no-daemon
 
-FROM openjdk:11-jre-slim
+FROM eclipse-temurin:11-jre
 WORKDIR /app
 COPY --from=build /app/build/libs/*.jar app.jar
 
