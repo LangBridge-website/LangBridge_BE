@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  backend:
+    container_name: langbridge-backend
+    build:
+      context: .
+    env_file:
+      - .env
+    expose:
+      - "8080"
+    networks:
+      langbridge:
+        ipv4_address: 10.10.120.10
+    restart: unless-stopped
+
+networks:
+  langbridge:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.10.120.0/24
+          gateway: 10.10.120.1
