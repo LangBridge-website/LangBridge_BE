@@ -23,6 +23,8 @@ jobs:
             
             # 최신 코드 가져오기
             echo " Pulling latest code..."
+            git fetch origin deploy
+            git checkout deploy
             git pull origin deploy
             
             # .env 파일 생성
