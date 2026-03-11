@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -y \
     libx11-6 libxcomposite1 libxdamage1 libxrandr2 \
     libgbm1 libasound2t64 libpangocairo-1.0-0 libatk1.0-0 \
     libatk-bridge2.0-0 libcups2 libdrm2 libnspr4 libnss3 \
-    libxss1 fonts-noto-cjk \
+    libxss1 libxfixes3 libxkbcommon0 fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
 
 EXPOSE 8080
