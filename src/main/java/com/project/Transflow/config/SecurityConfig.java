@@ -34,7 +34,7 @@ public class SecurityConfig {
             .cors().configurationSource(corsConfigurationSource())
             .and()
             .sessionManagement()
-                .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+                .sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
             .and()
             // 개발 단계: 모든 요청 허용 (인증 체크 비활성화)
             .authorizeRequests()
