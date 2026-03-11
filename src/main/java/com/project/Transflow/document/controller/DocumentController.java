@@ -1,10 +1,13 @@
 package com.project.Transflow.document.controller;
 
 import com.project.Transflow.admin.util.AdminAuthUtil;
+import com.project.Transflow.document.dto.CompleteTranslationRequest;
 import com.project.Transflow.document.dto.CreateDocumentRequest;
+import com.project.Transflow.document.dto.CreateDocumentVersionRequest;
 import com.project.Transflow.document.dto.DocumentResponse;
 import com.project.Transflow.document.dto.UpdateDocumentRequest;
 import com.project.Transflow.document.service.DocumentService;
+import com.project.Transflow.document.service.DocumentVersionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -32,6 +35,7 @@ import java.util.Map;
 public class DocumentController {
 
     private final DocumentService documentService;
+    private final DocumentVersionService versionService;
     private final AdminAuthUtil adminAuthUtil;
 
     @Operation(
@@ -94,13 +98,17 @@ public class DocumentController {
         
         // 제목 검색이 있으면 검색 결과 사용
         if (title != null && !title.trim().isEmpty()) {
-            documents = documentService.findByTitleContaining(title.trim());
-            
-            // 추가 필터 적용
-            if (status != null) {
-                documents = documents.stream()
-                        .filter(doc -> doc.getStatus().equals(status))
+            if (status != null && "PENDING_TRANSLATION".equals(status)) {
+                documents = documentService.findPendingTranslationSourcesNotFinalized().stream()
+                        .filter(doc -> doc.getTitle() != null && doc.getTitle().toLowerCase().contains(title.trim().toLowerCase()))
                         .collect(java.util.stream.Collectors.toList());
+            } else {
+                documents = documentService.findByTitleContaining(title.trim());
+                if (status != null) {
+                    documents = documents.stream()
+                            .filter(doc -> doc.getStatus().equals(status))
+                            .collect(java.util.stream.Collectors.toList());
+                }
             }
             if (categoryId != null) {
                 documents = documents.stream()
@@ -109,12 +117,16 @@ public class DocumentController {
             }
         } else if (status != null && categoryId != null) {
             // 상태와 카테고리로 필터링
-            documents = documentService.findByStatus(status);
+            documents = "PENDING_TRANSLATION".equals(status)
+                    ? documentService.findPendingTranslationSourcesNotFinalized()
+                    : documentService.findByStatus(status);
             documents = documents.stream()
                     .filter(doc -> doc.getCategoryId() != null && doc.getCategoryId().equals(categoryId))
                     .collect(java.util.stream.Collectors.toList());
         } else if (status != null) {
-            documents = documentService.findByStatus(status);
+            documents = "PENDING_TRANSLATION".equals(status)
+                    ? documentService.findPendingTranslationSourcesNotFinalized()
+                    : documentService.findByStatus(status);
         } else if (categoryId != null) {
             documents = documentService.findByCategoryId(categoryId);
         } else {
@@ -146,6 +158,135 @@ public class DocumentController {
         return documentService.findById(id)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
+    }
+
+    @Operation(
+            summary = "번역 시작 (복사본 생성)",
+            description = "원문 문서에서 번역용 복사본을 생성하고 해당 문서로 작업을 시작합니다. 봉사자/관리자 모두 사용 가능. 락 없이 본인 전용 문서가 생성됩니다."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "201", description = "복사본 생성 성공",
+                    content = @Content(schema = @Schema(implementation = DocumentResponse.class))),
+            @ApiResponse(responseCode = "400", description = "원문이 아니거나 잘못된 요청"),
+            @ApiResponse(responseCode = "404", description = "원문 문서를 찾을 수 없음")
+    })
+    @PostMapping("/{documentId}/start-translation")
+    public ResponseEntity<DocumentResponse> startTranslation(
+            @Parameter(hidden = true) @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @Parameter(description = "원문 문서 ID", required = true, example = "1")
+            @PathVariable Long documentId) {
+
+        Long userId = null;
+        if (authHeader != null && !authHeader.isEmpty()) {
+            try {
+                userId = adminAuthUtil.getUserIdFromToken(authHeader);
+            } catch (Exception e) {
+                log.warn("토큰에서 사용자 ID 추출 실패: {}", e.getMessage());
+            }
+        }
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        DocumentResponse response = documentService.createCopyForTranslation(documentId, userId);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @Operation(
+            summary = "이어서 작업 (복사본 생성, 관리자 전용)",
+            description = "다른 사용자의 문서를 이어받아 새 복사본을 생성합니다. 관리자만 호출 가능합니다."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "201", description = "복사본 생성 성공",
+                    content = @Content(schema = @Schema(implementation = DocumentResponse.class))),
+            @ApiResponse(responseCode = "403", description = "관리자 권한 필요"),
+            @ApiResponse(responseCode = "404", description = "문서를 찾을 수 없음")
+    })
+    @PostMapping("/{documentId}/copy-for-continuation")
+    public ResponseEntity<DocumentResponse> copyForContinuation(
+            @Parameter(hidden = true) @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @Parameter(description = "이어받을 문서 ID", required = true, example = "1")
+            @PathVariable Long documentId) {
+
+        if (authHeader == null || authHeader.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        if (!adminAuthUtil.isAdminOrAbove(authHeader)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        Long userId = adminAuthUtil.getUserIdFromToken(authHeader);
+        DocumentResponse response = documentService.createCopyForContinuation(documentId, userId);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @Operation(
+            summary = "번역 완료",
+            description = "번역 작업을 완료하고 검토 대기 상태로 변경합니다. (락 없이 문서에 직접 저장)"
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "완료 성공"),
+            @ApiResponse(responseCode = "401", description = "인증 필요")
+    })
+    @PostMapping("/{documentId}/complete")
+    public ResponseEntity<Map<String, Object>> completeTranslation(
+            @Parameter(hidden = true) @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @Parameter(description = "문서 ID", required = true) @PathVariable Long documentId,
+            @Valid @RequestBody CompleteTranslationRequest request) {
+
+        Long userId = null;
+        if (authHeader != null && !authHeader.isEmpty()) {
+            try {
+                userId = adminAuthUtil.getUserIdFromToken(authHeader);
+            } catch (Exception e) {
+                log.warn("토큰에서 사용자 ID 추출 실패: {}", e.getMessage());
+            }
+        }
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+
+        CreateDocumentVersionRequest versionRequest = new CreateDocumentVersionRequest();
+        versionRequest.setVersionType("MANUAL_TRANSLATION");
+        versionRequest.setContent(request.getContent());
+        versionRequest.setIsFinal(false);
+        versionService.createVersion(documentId, versionRequest, userId);
+
+        UpdateDocumentRequest updateRequest = new UpdateDocumentRequest();
+        updateRequest.setStatus("PENDING_REVIEW");
+        updateRequest.setCompletedParagraphs(request.getCompletedParagraphs());
+        documentService.updateDocument(documentId, updateRequest, userId);
+
+        return ResponseEntity.ok(Map.of("success", true, "message", "번역이 완료되었습니다.", "status", "PENDING_REVIEW"));
+    }
+
+    @Operation(
+            summary = "임시 저장",
+            description = "번역 작업 중 완료된 문단 정보를 문서에 임시 저장합니다."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "저장 성공"),
+            @ApiResponse(responseCode = "401", description = "인증 필요")
+    })
+    @PutMapping("/{documentId}/translation")
+    public ResponseEntity<Map<String, Object>> saveTranslation(
+            @Parameter(hidden = true) @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @Parameter(description = "문서 ID", required = true) @PathVariable Long documentId,
+            @Valid @RequestBody CompleteTranslationRequest request) {
+
+        Long userId = null;
+        if (authHeader != null && !authHeader.isEmpty()) {
+            try {
+                userId = adminAuthUtil.getUserIdFromToken(authHeader);
+            } catch (Exception e) {
+                log.warn("토큰에서 사용자 ID 추출 실패: {}", e.getMessage());
+            }
+        }
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        UpdateDocumentRequest updateRequest = new UpdateDocumentRequest();
+        updateRequest.setCompletedParagraphs(request.getCompletedParagraphs());
+        documentService.updateDocument(documentId, updateRequest, userId);
+        return ResponseEntity.ok(Map.of("success", true, "message", "임시 저장되었습니다."));
     }
 
     @Operation(

@@ -40,5 +40,8 @@ public class UpdateDocumentRequest {
 
     @Schema(description = "임시저장 데이터 (JSON)", example = "{\"currentStep\": 2, \"draft\": {...}}")
     private String draftData;
+
+    @Schema(description = "완료된 문단 인덱스 배열 (JSON)", example = "[0, 1, 2]")
+    private java.util.List<Integer> completedParagraphs;
 }
 
