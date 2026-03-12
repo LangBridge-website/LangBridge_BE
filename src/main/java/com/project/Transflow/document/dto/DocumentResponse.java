@@ -44,6 +44,9 @@ public class DocumentResponse {
     @Schema(description = "현재 활성 버전 번호", example = "2")
     private Integer currentVersionNumber;
 
+    @Schema(description = "현재 버전이 최종(FINAL) 여부", example = "true")
+    private Boolean currentVersionIsFinal;
+
     @Schema(description = "예상 분량", example = "5000")
     private Integer estimatedLength;
 
@@ -55,6 +58,12 @@ public class DocumentResponse {
 
     @Schema(description = "임시저장 데이터 (JSON)", example = "{\"currentStep\": 2, \"draft\": {...}}")
     private String draftData;
+
+    @Schema(description = "원문 문서 ID (복사본인 경우, 원문이면 null)", example = "1")
+    private Long sourceDocumentId;
+
+    @Schema(description = "완료된 문단 인덱스 배열", example = "[0, 1, 2]")
+    private java.util.List<Integer> completedParagraphs;
 
     @Schema(description = "생성자 정보")
     private CreatorInfo createdBy;

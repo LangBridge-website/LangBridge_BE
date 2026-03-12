@@ -4,19 +4,25 @@ import com.project.Transflow.document.dto.CreateDocumentRequest;
 import com.project.Transflow.document.dto.DocumentResponse;
 import com.project.Transflow.document.dto.UpdateDocumentRequest;
 import com.project.Transflow.document.entity.Document;
+import com.project.Transflow.document.entity.DocumentVersion;
 import com.project.Transflow.document.repository.DocumentRepository;
 import com.project.Transflow.document.repository.DocumentVersionRepository;
 import com.project.Transflow.document.service.HandoverHistoryService;
 import com.project.Transflow.document.entity.HandoverHistory;
+import com.project.Transflow.task.entity.TranslationTask;
+import com.project.Transflow.task.repository.TranslationTaskRepository;
 import com.project.Transflow.user.entity.User;
 import com.project.Transflow.user.repository.UserRepository;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -31,6 +37,7 @@ public class DocumentService {
     private final DocumentVersionRepository documentVersionRepository;
     private final UserRepository userRepository;
     private final HandoverHistoryService handoverHistoryService;
+    private final TranslationTaskRepository translationTaskRepository;
     private final ObjectMapper objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
 
     @Transactional
@@ -154,6 +161,32 @@ public class DocumentService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * 번역 대기 중인 원문만 조회. 이미 해당 원문에 대해 APPROVED/PUBLISHED 문서가 있으면 제외(종료된 원문 제외).
+     */
+    @Transactional(readOnly = true)
+    public List<DocumentResponse> findPendingTranslationSourcesNotFinalized() {
+        return documentRepository.findPendingTranslationSourcesNotFinalized().stream()
+                .map(this::toResponse)
+                .collect(Collectors.toList());
+    }
+
+    /** 원문 ID로 해당 원문의 복사본(다른 사람 작업물) 목록 조회 */
+    @Transactional(readOnly = true)
+    public List<DocumentResponse> findCopiesBySourceDocumentId(Long sourceDocumentId) {
+        return documentRepository.findBySourceDocument_IdOrderByCreatedAtDesc(sourceDocumentId).stream()
+                .map(this::toResponse)
+                .collect(Collectors.toList());
+    }
+
+    /** 원문만 조회 (복사본 제외). URL 기준 중복 제거 없이 원문을 항상 노출할 때 사용. */
+    @Transactional(readOnly = true)
+    public List<DocumentResponse> findSourceDocumentsOnly() {
+        return documentRepository.findBySourceDocumentIsNull().stream()
+                .map(this::toResponse)
+                .collect(Collectors.toList());
+    }
+
     @Transactional(readOnly = true)
     public List<DocumentResponse> findByCategoryId(Long categoryId) {
         return documentRepository.findByCategoryId(categoryId).stream()
@@ -207,12 +240,156 @@ public class DocumentService {
         if (request.getDraftData() != null) {
             document.setDraftData(request.getDraftData());
         }
+        if (request.getCompletedParagraphs() != null) {
+            try {
+                document.setCompletedParagraphs(objectMapper.writeValueAsString(request.getCompletedParagraphs()));
+            } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+                log.warn("completedParagraphs JSON 직렬화 실패: documentId={}", id, e);
+            }
+        }
 
         document.setLastModifiedBy(lastModifiedBy);
 
         Document saved = documentRepository.save(document);
         log.info("문서 수정: {} (id: {})", saved.getTitle(), saved.getId());
         return toResponse(saved);
+    }
+
+    /**
+     * 봉사자: 원문 문서에서 번역용 복사본을 생성하고 작업을 시작합니다.
+     * 복사본에는 원문의 ORIGINAL, AI_DRAFT 버전이 복사되며, 새 문서는 IN_TRANSLATION 상태로 생성됩니다.
+     */
+    @Transactional
+    public DocumentResponse createCopyForTranslation(Long sourceDocumentId, Long userId) {
+        Document source = documentRepository.findById(sourceDocumentId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "원문 문서를 찾을 수 없습니다."));
+        if (source.getSourceDocument() != null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "원문 문서만 번역 시작할 수 있습니다. 복사본에서 시작하려면 관리자용 '이어서 작업'을 사용하세요.");
+        }
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "사용자를 찾을 수 없습니다."));
+
+        Document copy = Document.builder()
+                .title(source.getTitle())
+                .originalUrl(source.getOriginalUrl())
+                .sourceLang(source.getSourceLang())
+                .targetLang(source.getTargetLang())
+                .categoryId(source.getCategoryId())
+                .status("IN_TRANSLATION")
+                .estimatedLength(source.getEstimatedLength())
+                .sourceDocument(source)
+                .createdBy(user)
+                .build();
+        copy = documentRepository.save(copy);
+
+        List<DocumentVersion> sourceVersions = documentVersionRepository
+                .findByDocument_IdOrderByVersionNumberAsc(sourceDocumentId).stream()
+                .filter(v -> "ORIGINAL".equals(v.getVersionType()) || "AI_DRAFT".equals(v.getVersionType()))
+                .collect(Collectors.toList());
+        DocumentVersion lastCopied = null;
+        for (DocumentVersion sv : sourceVersions) {
+            DocumentVersion cv = DocumentVersion.builder()
+                    .document(copy)
+                    .versionNumber(sv.getVersionNumber())
+                    .versionType(sv.getVersionType())
+                    .content(sv.getContent())
+                    .isFinal(sv.getIsFinal())
+                    .createdBy(user)
+                    .build();
+            lastCopied = documentVersionRepository.save(cv);
+        }
+        if (lastCopied != null) {
+            copy.setCurrentVersionId(lastCopied.getId());
+            documentRepository.save(copy);
+        }
+
+        TranslationTask task = TranslationTask.builder()
+                .document(copy)
+                .translator(user)
+                .assignedBy(null)
+                .status("IN_PROGRESS")
+                .startedAt(LocalDateTime.now())
+                .lastActivityAt(LocalDateTime.now())
+                .build();
+        translationTaskRepository.save(task);
+        log.info("번역 복사본 생성: sourceId={}, copyId={}, userId={}", sourceDocumentId, copy.getId(), userId);
+        return toResponse(copy);
+    }
+
+    /**
+     * 관리자: 다른 문서의 작업을 이어받아 새 복사본을 생성합니다.
+     * 복사본에는 원문의 ORIGINAL/AI_DRAFT와, 이어받을 문서의 최신 내용이 MANUAL_TRANSLATION으로 복사됩니다.
+     */
+    @Transactional
+    public DocumentResponse createCopyForContinuation(Long fromDocumentId, Long userId) {
+        Document fromDoc = documentRepository.findById(fromDocumentId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "문서를 찾을 수 없습니다."));
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "사용자를 찾을 수 없습니다."));
+
+        Document source = fromDoc.getSourceDocument() != null ? fromDoc.getSourceDocument() : fromDoc;
+        Long sourceId = source.getId();
+
+        Document copy = Document.builder()
+                .title(fromDoc.getTitle())
+                .originalUrl(fromDoc.getOriginalUrl())
+                .sourceLang(fromDoc.getSourceLang())
+                .targetLang(fromDoc.getTargetLang())
+                .categoryId(fromDoc.getCategoryId())
+                .status("IN_TRANSLATION")
+                .estimatedLength(fromDoc.getEstimatedLength())
+                .sourceDocument(source)
+                .createdBy(user)
+                .build();
+        copy = documentRepository.save(copy);
+
+        List<DocumentVersion> sourceVersions = documentVersionRepository
+                .findByDocument_IdOrderByVersionNumberAsc(sourceId).stream()
+                .filter(v -> "ORIGINAL".equals(v.getVersionType()) || "AI_DRAFT".equals(v.getVersionType()))
+                .collect(Collectors.toList());
+        for (DocumentVersion sv : sourceVersions) {
+            DocumentVersion cv = DocumentVersion.builder()
+                    .document(copy)
+                    .versionNumber(sv.getVersionNumber())
+                    .versionType(sv.getVersionType())
+                    .content(sv.getContent())
+                    .isFinal(false)
+                    .createdBy(user)
+                    .build();
+            documentVersionRepository.save(cv);
+        }
+
+        Optional<DocumentVersion> fromLatest = documentVersionRepository.findFirstByDocument_IdOrderByVersionNumberDesc(fromDocumentId);
+        if (fromLatest.isPresent() && ("MANUAL_TRANSLATION".equals(fromLatest.get().getVersionType()) || "AI_DRAFT".equals(fromLatest.get().getVersionType()))) {
+            int nextVersionNum = sourceVersions.isEmpty() ? 2 : sourceVersions.get(sourceVersions.size() - 1).getVersionNumber() + 1;
+            DocumentVersion continued = DocumentVersion.builder()
+                    .document(copy)
+                    .versionNumber(nextVersionNum)
+                    .versionType("MANUAL_TRANSLATION")
+                    .content(fromLatest.get().getContent())
+                    .isFinal(false)
+                    .createdBy(user)
+                    .build();
+            documentVersionRepository.save(continued);
+        }
+
+        List<DocumentVersion> copiedVersions = documentVersionRepository.findByDocument_IdOrderByVersionNumberAsc(copy.getId());
+        if (!copiedVersions.isEmpty()) {
+            copy.setCurrentVersionId(copiedVersions.get(copiedVersions.size() - 1).getId());
+            documentRepository.save(copy);
+        }
+
+        TranslationTask task = TranslationTask.builder()
+                .document(copy)
+                .translator(user)
+                .assignedBy(null)
+                .status("IN_PROGRESS")
+                .startedAt(LocalDateTime.now())
+                .lastActivityAt(LocalDateTime.now())
+                .build();
+        translationTaskRepository.save(task);
+        log.info("이어받기 복사본 생성: fromDocId={}, copyId={}, userId={}", fromDocumentId, copy.getId(), userId);
+        return toResponse(copy);
     }
 
     @Transactional
@@ -230,10 +407,30 @@ public class DocumentService {
         boolean hasVersions = versionCount > 0;
         
         Integer currentVersionNumber = null;
+        Boolean currentVersionIsFinal = null;
         if (document.getCurrentVersionId() != null) {
-            currentVersionNumber = documentVersionRepository.findById(document.getCurrentVersionId())
-                    .map(v -> v.getVersionNumber())
-                    .orElse(null);
+            var currentVersionOpt = documentVersionRepository.findById(document.getCurrentVersionId());
+            currentVersionNumber = currentVersionOpt.map(DocumentVersion::getVersionNumber).orElse(null);
+            currentVersionIsFinal = currentVersionOpt.map(v -> Boolean.TRUE.equals(v.getIsFinal())).orElse(null);
+        }
+
+        // sourceDocumentId (원문 참조)
+        Long sourceDocumentId = null;
+        if (document.getSourceDocument() != null) {
+            sourceDocumentId = document.getSourceDocument().getId();
+        }
+
+        // completedParagraphs JSON 파싱
+        java.util.List<Integer> completedParagraphsList = null;
+        if (document.getCompletedParagraphs() != null && !document.getCompletedParagraphs().isEmpty()) {
+            try {
+                completedParagraphsList = objectMapper.readValue(
+                    document.getCompletedParagraphs(),
+                    new TypeReference<java.util.List<Integer>>() {}
+                );
+            } catch (Exception e) {
+                log.warn("문서 completedParagraphs JSON 파싱 실패: documentId={}", document.getId(), e);
+            }
         }
 
         DocumentResponse.DocumentResponseBuilder builder = DocumentResponse.builder()
@@ -246,10 +443,13 @@ public class DocumentService {
                 .status(document.getStatus())
                 .currentVersionId(document.getCurrentVersionId())
                 .currentVersionNumber(currentVersionNumber)
+                .currentVersionIsFinal(currentVersionIsFinal)
                 .estimatedLength(document.getEstimatedLength())
                 .versionCount(versionCount)
                 .hasVersions(hasVersions)
                 .draftData(document.getDraftData())
+                .sourceDocumentId(sourceDocumentId)
+                .completedParagraphs(completedParagraphsList)
                 .createdAt(document.getCreatedAt())
                 .updatedAt(document.getUpdatedAt());
 
@@ -274,11 +474,11 @@ public class DocumentService {
         if (latestHandover.isPresent()) {
             HandoverHistory handover = latestHandover.get();
             
-            // completedParagraphs JSON 파싱
-            java.util.List<Integer> completedParagraphsList = null;
+            // 인계 히스토리 completedParagraphs JSON 파싱
+            java.util.List<Integer> handoverCompletedParagraphsList = null;
             if (handover.getCompletedParagraphs() != null && !handover.getCompletedParagraphs().isEmpty()) {
                 try {
-                    completedParagraphsList = objectMapper.readValue(
+                    handoverCompletedParagraphsList = objectMapper.readValue(
                         handover.getCompletedParagraphs(),
                         new TypeReference<java.util.List<Integer>>() {}
                     );
@@ -290,7 +490,7 @@ public class DocumentService {
             DocumentResponse.HandoverInfo.HandoverInfoBuilder handoverBuilder = DocumentResponse.HandoverInfo.builder()
                     .memo(handover.getMemo())
                     .terms(handover.getTerms())
-                    .completedParagraphs(completedParagraphsList)
+                    .completedParagraphs(handoverCompletedParagraphsList)
                     .handedOverAt(handover.getCreatedAt());
 
             if (handover.getHandedOverBy() != null) {

@@ -50,6 +50,13 @@ public class Document {
     private String draftData; // 임시저장 데이터 (JSON) - draft 상태와 currentStep 포함
 
     @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "source_document_id")
+    private Document sourceDocument; // 원문 문서 (복사본인 경우 참조, 원문이면 null)
+
+    @Column(columnDefinition = "TEXT")
+    private String completedParagraphs; // 완료된 문단 인덱스 배열 (JSON)
+
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "created_by", nullable = false)
     private User createdBy; // 생성자 (관리자)
 
