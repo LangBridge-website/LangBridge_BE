@@ -31,5 +31,11 @@ public interface DocumentRepository extends JpaRepository<Document, Long> {
            "AND NOT EXISTS (SELECT 1 FROM Document d2 WHERE (d2.sourceDocument = d OR d2 = d) " +
            "AND d2.status IN ('APPROVED', 'PUBLISHED'))")
     List<Document> findPendingTranslationSourcesNotFinalized();
+
+    /** 원문 문서 ID로 복사본 목록 조회 (다른 사람 작업물) */
+    List<Document> findBySourceDocument_IdOrderByCreatedAtDesc(Long sourceDocumentId);
+
+    /** 원문만 조회 (복사본 제외) - 번역 대기 목록에서 항상 원문이 보이도록 */
+    List<Document> findBySourceDocumentIsNull();
 }
 

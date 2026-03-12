@@ -171,6 +171,22 @@ public class DocumentService {
                 .collect(Collectors.toList());
     }
 
+    /** 원문 ID로 해당 원문의 복사본(다른 사람 작업물) 목록 조회 */
+    @Transactional(readOnly = true)
+    public List<DocumentResponse> findCopiesBySourceDocumentId(Long sourceDocumentId) {
+        return documentRepository.findBySourceDocument_IdOrderByCreatedAtDesc(sourceDocumentId).stream()
+                .map(this::toResponse)
+                .collect(Collectors.toList());
+    }
+
+    /** 원문만 조회 (복사본 제외). URL 기준 중복 제거 없이 원문을 항상 노출할 때 사용. */
+    @Transactional(readOnly = true)
+    public List<DocumentResponse> findSourceDocumentsOnly() {
+        return documentRepository.findBySourceDocumentIsNull().stream()
+                .map(this::toResponse)
+                .collect(Collectors.toList());
+    }
+
     @Transactional(readOnly = true)
     public List<DocumentResponse> findByCategoryId(Long categoryId) {
         return documentRepository.findByCategoryId(categoryId).stream()
@@ -391,10 +407,11 @@ public class DocumentService {
         boolean hasVersions = versionCount > 0;
         
         Integer currentVersionNumber = null;
+        Boolean currentVersionIsFinal = null;
         if (document.getCurrentVersionId() != null) {
-            currentVersionNumber = documentVersionRepository.findById(document.getCurrentVersionId())
-                    .map(v -> v.getVersionNumber())
-                    .orElse(null);
+            var currentVersionOpt = documentVersionRepository.findById(document.getCurrentVersionId());
+            currentVersionNumber = currentVersionOpt.map(DocumentVersion::getVersionNumber).orElse(null);
+            currentVersionIsFinal = currentVersionOpt.map(v -> Boolean.TRUE.equals(v.getIsFinal())).orElse(null);
         }
 
         // sourceDocumentId (원문 참조)
@@ -426,6 +443,7 @@ public class DocumentService {
                 .status(document.getStatus())
                 .currentVersionId(document.getCurrentVersionId())
                 .currentVersionNumber(currentVersionNumber)
+                .currentVersionIsFinal(currentVersionIsFinal)
                 .estimatedLength(document.getEstimatedLength())
                 .versionCount(versionCount)
                 .hasVersions(hasVersions)
