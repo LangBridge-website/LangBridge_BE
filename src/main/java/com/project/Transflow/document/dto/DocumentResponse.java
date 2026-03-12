@@ -44,6 +44,9 @@ public class DocumentResponse {
     @Schema(description = "현재 활성 버전 번호", example = "2")
     private Integer currentVersionNumber;
 
+    @Schema(description = "현재 버전이 최종(FINAL) 여부", example = "true")
+    private Boolean currentVersionIsFinal;
+
     @Schema(description = "예상 분량", example = "5000")
     private Integer estimatedLength;
 

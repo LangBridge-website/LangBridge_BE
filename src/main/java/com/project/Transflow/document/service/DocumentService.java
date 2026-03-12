@@ -407,10 +407,11 @@ public class DocumentService {
         boolean hasVersions = versionCount > 0;
         
         Integer currentVersionNumber = null;
+        Boolean currentVersionIsFinal = null;
         if (document.getCurrentVersionId() != null) {
-            currentVersionNumber = documentVersionRepository.findById(document.getCurrentVersionId())
-                    .map(v -> v.getVersionNumber())
-                    .orElse(null);
+            var currentVersionOpt = documentVersionRepository.findById(document.getCurrentVersionId());
+            currentVersionNumber = currentVersionOpt.map(DocumentVersion::getVersionNumber).orElse(null);
+            currentVersionIsFinal = currentVersionOpt.map(v -> Boolean.TRUE.equals(v.getIsFinal())).orElse(null);
         }
 
         // sourceDocumentId (원문 참조)
@@ -442,6 +443,7 @@ public class DocumentService {
                 .status(document.getStatus())
                 .currentVersionId(document.getCurrentVersionId())
                 .currentVersionNumber(currentVersionNumber)
+                .currentVersionIsFinal(currentVersionIsFinal)
                 .estimatedLength(document.getEstimatedLength())
                 .versionCount(versionCount)
                 .hasVersions(hasVersions)
