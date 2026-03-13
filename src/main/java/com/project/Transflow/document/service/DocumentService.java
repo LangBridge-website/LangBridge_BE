@@ -11,6 +11,8 @@ import com.project.Transflow.document.service.HandoverHistoryService;
 import com.project.Transflow.document.entity.HandoverHistory;
 import com.project.Transflow.task.entity.TranslationTask;
 import com.project.Transflow.task.repository.TranslationTaskRepository;
+import com.project.Transflow.document.repository.DocumentFavoriteRepository;
+import com.project.Transflow.document.repository.HandoverHistoryRepository;
 import com.project.Transflow.user.entity.User;
 import com.project.Transflow.user.repository.UserRepository;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -38,6 +40,8 @@ public class DocumentService {
     private final UserRepository userRepository;
     private final HandoverHistoryService handoverHistoryService;
     private final TranslationTaskRepository translationTaskRepository;
+    private final DocumentFavoriteRepository documentFavoriteRepository;
+    private final HandoverHistoryRepository handoverHistoryRepository;
     private final ObjectMapper objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
 
     @Transactional
@@ -397,8 +401,48 @@ public class DocumentService {
         Document document = documentRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("문서를 찾을 수 없습니다: " + id));
 
+        // 1. 원문인 경우: 이 원문을 sourceDocument로 참조하는 모든 복사본을 먼저 삭제
+        if (document.getSourceDocument() == null) {
+            List<Document> copies = documentRepository.findBySourceDocument_IdOrderByCreatedAtDesc(id);
+            for (Document copy : copies) {
+                deleteSingleDocumentWithRelations(copy.getId());
+            }
+        }
+
+        // 2. 현재 문서 및 관련 엔티티 삭제
+        deleteSingleDocumentWithRelations(id);
+        log.info("문서 및 관련 데이터 삭제 완료: {} (id: {})", document.getTitle(), id);
+    }
+
+    /**
+     * 단일 문서에 매달린 관련 데이터(작업, 즐겨찾기, 인계, 버전)를 정리하고 문서 자체를 삭제한다.
+     */
+    @Transactional
+    protected void deleteSingleDocumentWithRelations(Long documentId) {
+        // 번역 작업 삭제
+        List<TranslationTask> tasks = translationTaskRepository.findByDocument_Id(documentId);
+        if (!tasks.isEmpty()) {
+            translationTaskRepository.deleteAll(tasks);
+            log.info("번역 작업 삭제: documentId={}, count={}", documentId, tasks.size());
+        }
+
+        // 즐겨찾기 삭제
+        documentFavoriteRepository.deleteByDocument_Id(documentId);
+
+        // 인계 히스토리 삭제
+        handoverHistoryRepository.deleteByDocument_Id(documentId);
+
+        // 버전 삭제 + currentVersionId 초기화
+        List<DocumentVersion> versions = documentVersionRepository.findByDocument_Id(documentId);
+        if (!versions.isEmpty()) {
+            documentVersionRepository.deleteAll(versions);
+            log.info("문서 버전 삭제: documentId={}, count={}", documentId, versions.size());
+        }
+
+        Document document = documentRepository.findById(documentId)
+                .orElseThrow(() -> new IllegalArgumentException("문서를 찾을 수 없습니다: " + documentId));
+        document.setCurrentVersionId(null);
         documentRepository.delete(document);
-        log.info("문서 삭제: {} (id: {})", document.getTitle(), id);
     }
 
     private DocumentResponse toResponse(Document document) {
