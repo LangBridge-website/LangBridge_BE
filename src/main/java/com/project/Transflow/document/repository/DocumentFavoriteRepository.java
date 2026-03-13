@@ -13,6 +13,7 @@ public interface DocumentFavoriteRepository extends JpaRepository<DocumentFavori
     List<DocumentFavorite> findByUserId(Long userId);
     boolean existsByUserIdAndDocumentId(Long userId, Long documentId);
     void deleteByUserIdAndDocumentId(Long userId, Long documentId);
+    void deleteByDocument_Id(Long documentId);
 }
 
 

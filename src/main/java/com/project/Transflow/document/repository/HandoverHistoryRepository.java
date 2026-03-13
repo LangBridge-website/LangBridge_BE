@@ -23,5 +23,7 @@ public interface HandoverHistoryRepository extends JpaRepository<HandoverHistory
      * 특정 사용자가 인계한 히스토리 조회
      */
     List<HandoverHistory> findByHandedOverBy_IdOrderByCreatedAtDesc(Long userId);
+
+    void deleteByDocument_Id(Long documentId);
 }
 
