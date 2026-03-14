@@ -62,55 +62,26 @@ public class DocumentService {
             log.warn("Authorization 헤더가 없어 기본 사용자 사용: {}", createdBy.getId());
         }
 
-        // 같은 URL의 문서가 있는지 확인 (DRAFT 또는 PENDING_TRANSLATION 상태인 경우)
-        List<Document> existingDocs = documentRepository.findByOriginalUrlOrderByCreatedAtDesc(request.getOriginalUrl());
-        Optional<Document> existingDoc = existingDocs.stream()
-                .filter(doc -> "DRAFT".equals(doc.getStatus()) || "PENDING_TRANSLATION".equals(doc.getStatus()))
-                .findFirst();
-
         // status가 없으면 기본값 DRAFT 사용
         String status = (request.getStatus() != null && !request.getStatus().isEmpty()) 
                 ? request.getStatus() 
                 : "DRAFT";
         
-        Document document;
-        if (existingDoc.isPresent() && ("DRAFT".equals(status) || "PENDING_TRANSLATION".equals(status))) {
-            // 같은 URL의 DRAFT 또는 PENDING_TRANSLATION 문서가 있으면 제목 업데이트
-            Document docToUpdate = existingDoc.get();
-            String oldStatus = docToUpdate.getStatus();
-            docToUpdate.setTitle(request.getTitle());
-            docToUpdate.setStatus(status); // 상태도 업데이트 (Step 6에서 선택한 상태로)
-            if (request.getCategoryId() != null) {
-                docToUpdate.setCategoryId(request.getCategoryId());
-            }
-            if (request.getEstimatedLength() != null) {
-                docToUpdate.setEstimatedLength(request.getEstimatedLength());
-            }
-            if (request.getDraftData() != null) {
-                docToUpdate.setDraftData(request.getDraftData());
-            }
-            docToUpdate.setLastModifiedBy(createdBy);
-            document = documentRepository.save(docToUpdate);
-            log.info("기존 문서 제목 업데이트: {} (id: {}, 상태: {} -> {})", 
-                    document.getTitle(), document.getId(), oldStatus, status);
-        } else {
-            // 새 문서 생성
-            document = Document.builder()
-                    .title(request.getTitle())
-                    .originalUrl(request.getOriginalUrl())
-                    .sourceLang(request.getSourceLang())
-                    .targetLang(request.getTargetLang())
-                    .categoryId(request.getCategoryId())
-                    .status(status)
-                    .estimatedLength(request.getEstimatedLength())
-                    .draftData(request.getDraftData())
-                    .createdBy(createdBy)
-                    .build();
-            
-            log.info("문서 생성 - 상태: {}", status);
-            document = documentRepository.save(document);
-            log.info("문서 생성: {} (id: {})", document.getTitle(), document.getId());
-        }
+        // 항상 새 문서 생성 (같은 URL이라도 덮어쓰지 않음)
+        Document document = Document.builder()
+                .title(request.getTitle())
+                .originalUrl(request.getOriginalUrl())
+                .sourceLang(request.getSourceLang())
+                .targetLang(request.getTargetLang())
+                .categoryId(request.getCategoryId())
+                .status(status)
+                .estimatedLength(request.getEstimatedLength())
+                .draftData(request.getDraftData())
+                .createdBy(createdBy)
+                .build();
+        
+        document = documentRepository.save(document);
+        log.info("문서 생성: {} (id: {}, 상태: {})", document.getTitle(), document.getId(), status);
         
         return toResponse(document);
     }
