@@ -5,7 +5,6 @@ import com.project.Transflow.user.repository.UserRepository;
 import com.project.Transflow.auth.util.JwtUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.security.web.authentication.SimpleUrlAuthenticationSuccessHandler;
@@ -27,10 +26,6 @@ public class OAuth2LoginSuccessHandler extends SimpleUrlAuthenticationSuccessHan
     private final UserRepository userRepository;
     private final JwtUtil jwtUtil;
 
-    /** {@code application.yml} → {@code FRONTEND_URL} 환경변수로 설정 */
-    @Value("${app.frontend-url:http://localhost:3000}")
-    private String frontendUrl;
-
     @Override
     public void onAuthenticationSuccess(HttpServletRequest request, HttpServletResponse response,
                                         Authentication authentication) throws IOException, ServletException {
@@ -40,6 +35,12 @@ public class OAuth2LoginSuccessHandler extends SimpleUrlAuthenticationSuccessHan
         
         String email = (String) attributes.get("email");
         log.info("OAuth2 로그인 성공: {}", email);
+        
+        // 프론트엔드 URL 가져오기 (환경 변수 또는 기본값 사용)
+        String frontendUrl = System.getenv("FRONTEND_URL");
+        if (frontendUrl == null || frontendUrl.isEmpty()) {
+            frontendUrl = "http://localhost:3000";
+        }
         
         if (email == null) {
             log.error("이메일 정보가 없습니다.");
