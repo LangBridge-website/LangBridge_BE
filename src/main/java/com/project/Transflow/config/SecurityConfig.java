@@ -59,6 +59,7 @@ public class SecurityConfig {
 
         return http.build();
     }
+    //배포 테스트
 
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
