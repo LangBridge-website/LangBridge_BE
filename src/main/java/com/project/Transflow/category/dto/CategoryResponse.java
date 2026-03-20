@@ -20,6 +20,9 @@ public class CategoryResponse {
     @Schema(description = "카테고리 ID", example = "1")
     private Long id;
 
+    @Schema(description = "카테고리 코드(엑셀 첫 컬럼)", example = "Science")
+    private String code;
+
     @Schema(description = "카테고리 이름", example = "기술 문서")
     private String name;
 

@@ -20,6 +20,10 @@ public class Category {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    // 엑셀의 첫 컬럼(카테고리 코드). 기존 데이터 호환을 위해 nullable=true.
+    @Column(length = 100)
+    private String code;
+
     @Column(nullable = false, length = 100)
     private String name;
 

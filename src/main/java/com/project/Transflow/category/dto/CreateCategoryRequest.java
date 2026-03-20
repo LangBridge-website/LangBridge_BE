@@ -16,7 +16,12 @@ import javax.validation.constraints.Size;
 @Schema(description = "카테고리 생성 요청")
 public class CreateCategoryRequest {
 
-    @Schema(description = "카테고리 이름", example = "기술 문서", requiredMode = Schema.RequiredMode.REQUIRED)
+    @Schema(description = "카테고리 코드", example = "Science", requiredMode = Schema.RequiredMode.REQUIRED)
+    @NotBlank(message = "카테고리 코드는 필수입니다.")
+    @Size(max = 100, message = "카테고리 코드는 100자 이하여야 합니다.")
+    private String code;
+
+    @Schema(description = "카테고리 이름(사용자 표시)", example = "기술 문서", requiredMode = Schema.RequiredMode.REQUIRED)
     @NotBlank(message = "카테고리 이름은 필수입니다.")
     @Size(max = 100, message = "카테고리 이름은 100자 이하여야 합니다.")
     private String name;
