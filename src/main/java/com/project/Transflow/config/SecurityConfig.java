@@ -4,6 +4,7 @@ import com.project.Transflow.auth.filter.JwtAuthenticationFilter;
 import com.project.Transflow.auth.handler.OAuth2LoginSuccessHandler;
 import com.project.Transflow.user.service.CustomOAuth2UserService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -17,6 +18,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Configuration
 @EnableWebSecurity
@@ -27,6 +29,12 @@ public class SecurityConfig {
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final OAuth2LoginSuccessHandler oAuth2LoginSuccessHandler;
 
+    /**
+     * 쉼표로 구분된 Origin 목록. 예: {@code CORS_ALLOWED_ORIGINS=https://app.example.com,https://lb.walab.info}
+     */
+    @Value("${app.cors.allowed-origins:http://localhost:3000,http://localhost:8080,https://lb.walab.info}")
+    private String corsAllowedOrigins;
+
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
@@ -36,26 +44,29 @@ public class SecurityConfig {
             .sessionManagement()
                 .sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
             .and()
-            // 개발 단계: 모든 요청 허용 (인증 체크 비활성화)
+            .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
             .authorizeRequests()
-                .anyRequest().permitAll()
+                .antMatchers(
+                        "/",
+                        "/login",
+                        "/oauth2/**",
+                        "/login/oauth2/**",
+                        "/error",
+                        "/swagger-ui/**",
+                        "/swagger-ui.html",
+                        "/v3/api-docs/**",
+                        // 로그인 콜백·실패만 공개 (/me, /logout 은 JWT 필요)
+                        "/api/auth/login/**",
+                        "/api/translate/health"
+                ).permitAll()
+                .anyRequest().authenticated()
             .and()
-            // OAuth2 로그인 설정은 유지 (OAuth2 엔드포인트 작동을 위해 필요)
             .oauth2Login()
                 .userInfoEndpoint()
                     .userService(customOAuth2UserService)
                 .and()
                 .successHandler(oAuth2LoginSuccessHandler)
                 .failureUrl("/api/auth/login/failure");
-            
-            // 프로덕션 단계: 아래 주석 해제하고 위의 permitAll()을 authenticated()로 변경
-            /*
-            .authorizeRequests()
-                .antMatchers("/", "/login", "/oauth2/**", "/error", "/swagger-ui/**", "/v3/api-docs/**", "/api/auth/**").permitAll()
-                .anyRequest().authenticated()
-            .and()
-            .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
-            */
 
         return http.build();
     }
@@ -64,7 +75,11 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(List.of("http://localhost:3000", "http://localhost:8080", "https://lb.walab.info")); // 프론트엔드 URL 추가 필요
+        List<String> origins = Arrays.stream(corsAllowedOrigins.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .collect(Collectors.toList());
+        configuration.setAllowedOrigins(origins);
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("*"));
         configuration.setAllowCredentials(true);
