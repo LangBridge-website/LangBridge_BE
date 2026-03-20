@@ -130,8 +130,12 @@ public class CrawlerService {
 
             // 페이지 로드
             log.info("페이지 로드 중...");
+            int httpStatus = 0;
             try {
-                page.navigate(url);
+                com.microsoft.playwright.Response navigateResponse = page.navigate(url);
+                if (navigateResponse != null) {
+                    httpStatus = navigateResponse.status();
+                }
             } catch (Exception e) {
                 log.warn("페이지 로드 중 오류 발생: {}. 현재 페이지 내용을 가져옵니다.", e.getMessage());
                 // 타임아웃이 발생해도 현재 페이지 내용은 가져올 수 있음
@@ -202,6 +206,7 @@ public class CrawlerService {
             Map<String, String> result = new HashMap<>();
             result.put("html", html);
             result.put("css", css);
+            result.put("httpStatus", String.valueOf(httpStatus));
             
             return result;
 
@@ -222,6 +227,7 @@ public class CrawlerService {
                         Map<String, String> result = new HashMap<>();
                         result.put("html", html);
                         result.put("css", css);
+                        result.put("httpStatus", "0");
                         log.warn("타임아웃 발생했지만 현재 페이지 내용을 반환합니다.");
                         return result;
                     } catch (Exception ex) {

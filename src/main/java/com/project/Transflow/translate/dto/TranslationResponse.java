@@ -25,4 +25,6 @@ public class TranslationResponse {
     private String targetLang;
     private boolean success;
     private String errorMessage;
+    private Integer httpStatus;
+    private boolean errorPage;
 }

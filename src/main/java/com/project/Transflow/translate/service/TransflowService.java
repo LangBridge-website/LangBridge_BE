@@ -30,6 +30,23 @@ public class TransflowService {
             Map<String, String> crawlResult = crawlerService.crawlWebPageWithStyles(request.getUrl());
             String originalHtml = crawlResult.get("html");
             String css = crawlResult.get("css");
+            int httpStatus = parseHttpStatus(crawlResult.get("httpStatus"));
+
+            // 1-1. 오류/차단 페이지 판별 (Step 2 영역 선택 대신 수동 서식 유도)
+            if (isLikelyErrorPage(originalHtml, httpStatus)) {
+                String message = httpStatus >= 400
+                        ? String.format("웹 페이지 오류가 발생했습니다. (HTTP %d) 수동 서식 넣기를 사용해주세요.", httpStatus)
+                        : "웹 페이지 오류 또는 접근 차단이 감지되었습니다. 수동 서식 넣기를 사용해주세요.";
+                return TranslationResponse.builder()
+                        .originalUrl(request.getUrl())
+                        .originalHtml(originalHtml)
+                        .css(css)
+                        .success(false)
+                        .errorPage(true)
+                        .httpStatus(httpStatus == 0 ? null : httpStatus)
+                        .errorMessage(message)
+                        .build();
+            }
 
             // 2. 번역이 필요한지 확인 (targetLang이 'NONE'이면 번역 건너뛰기)
             String translatedHtml = null; // 번역하지 않으면 null
@@ -87,6 +104,8 @@ public class TransflowService {
                     .sourceLang(request.getSourceLang())
                     .targetLang(request.getTargetLang())
                     .success(true)
+                    .errorPage(false)
+                    .httpStatus(httpStatus == 0 ? null : httpStatus)
                     .build();
 
         } catch (Exception e) {
@@ -94,9 +113,34 @@ public class TransflowService {
             return TranslationResponse.builder()
                     .originalUrl(request.getUrl())
                     .success(false)
+                    .errorPage(false)
                     .errorMessage(e.getMessage())
                     .build();
         }
+    }
+
+    private int parseHttpStatus(String status) {
+        if (status == null || status.isBlank()) return 0;
+        try {
+            return Integer.parseInt(status);
+        } catch (NumberFormatException ignored) {
+            return 0;
+        }
+    }
+
+    private boolean isLikelyErrorPage(String html, int httpStatus) {
+        if (httpStatus >= 400) return true;
+        if (html == null || html.isBlank()) return true;
+
+        String lower = html.toLowerCase();
+        return lower.contains("[get] \"/api/validate-page-locale")
+                || lower.contains("403 forbidden")
+                || lower.contains("error: 403")
+                || lower.contains("access denied")
+                || lower.contains("just a moment")
+                || lower.contains("verify you are human")
+                || lower.contains("enable javascript and cookies")
+                || lower.contains("checking your browser");
     }
     
     /**
