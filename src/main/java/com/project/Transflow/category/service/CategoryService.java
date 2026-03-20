@@ -23,12 +23,17 @@ public class CategoryService {
 
     @Transactional
     public CategoryResponse createCategory(CreateCategoryRequest request) {
-        // 중복 체크
+        // 중복 체크 (code 기준)
+        if (categoryRepository.existsByCode(request.getCode())) {
+            throw new IllegalArgumentException("이미 존재하는 카테고리 코드입니다: " + request.getCode());
+        }
+        // 기존 정책(name 중복 방지)도 유지
         if (categoryRepository.existsByName(request.getName())) {
             throw new IllegalArgumentException("이미 존재하는 카테고리 이름입니다: " + request.getName());
         }
 
         Category category = Category.builder()
+                .code(request.getCode())
                 .name(request.getName())
                 .description(request.getDescription())
                 .build();
@@ -55,6 +60,13 @@ public class CategoryService {
     public CategoryResponse updateCategory(Long id, UpdateCategoryRequest request) {
         Category category = categoryRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("카테고리를 찾을 수 없습니다: " + id));
+
+        if (request.getCode() != null) {
+            if (!request.getCode().equals(category.getCode()) && categoryRepository.existsByCode(request.getCode())) {
+                throw new IllegalArgumentException("이미 존재하는 카테고리 코드입니다: " + request.getCode());
+            }
+            category.setCode(request.getCode());
+        }
 
         if (request.getName() != null) {
             // 이름 변경 시 중복 체크 (현재 이름과 다를 때만)
@@ -83,8 +95,11 @@ public class CategoryService {
     }
 
     private CategoryResponse toResponse(Category category) {
+        // 기존 데이터(code가 null) 호환: code가 비어있으면 name을 코드로 간주
+        String code = category.getCode() != null ? category.getCode() : category.getName();
         return CategoryResponse.builder()
                 .id(category.getId())
+                .code(code)
                 .name(category.getName())
                 .description(category.getDescription())
                 .createdAt(category.getCreatedAt())

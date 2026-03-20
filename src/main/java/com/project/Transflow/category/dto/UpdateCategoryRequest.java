@@ -15,7 +15,11 @@ import javax.validation.constraints.Size;
 @Schema(description = "카테고리 수정 요청")
 public class UpdateCategoryRequest {
 
-    @Schema(description = "카테고리 이름", example = "기술 문서 (수정)")
+    @Schema(description = "카테고리 코드", example = "Science (수정)")
+    @Size(max = 100, message = "카테고리 코드는 100자 이하여야 합니다.")
+    private String code;
+
+    @Schema(description = "카테고리 이름(사용자 표시)", example = "기술 문서 (수정)")
     @Size(max = 100, message = "카테고리 이름은 100자 이하여야 합니다.")
     private String name;
 
