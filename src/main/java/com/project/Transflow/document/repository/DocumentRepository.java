@@ -37,5 +37,8 @@ public interface DocumentRepository extends JpaRepository<Document, Long> {
 
     /** 원문만 조회 (복사본 제외) - 번역 대기 목록에서 항상 원문이 보이도록 */
     List<Document> findBySourceDocumentIsNull();
+
+    /** 원문 ID + 생성자 ID로 복사본 조회 (내가 해당 원문에서 만든 복사본이 있는지 확인) */
+    Optional<Document> findBySourceDocument_IdAndCreatedBy_Id(Long sourceDocumentId, Long createdById);
 }
 

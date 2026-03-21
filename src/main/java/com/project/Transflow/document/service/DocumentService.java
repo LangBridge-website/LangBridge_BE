@@ -94,6 +94,31 @@ public class DocumentService {
                 .map(this::toResponse);
     }
 
+    /**
+     * URL로 이미 문서가 존재하는지 확인 (초벌 번역 중복 방지용).
+     * @param url 검사할 URL (trim 적용 권장)
+     * @return 존재 여부 및 문서 개수
+     */
+    @Transactional(readOnly = true)
+    public boolean existsByOriginalUrl(String url) {
+        if (url == null || url.isBlank()) return false;
+        List<Document> docs = documentRepository.findByOriginalUrl(url.trim());
+        return !docs.isEmpty();
+    }
+
+    /**
+     * 현재 사용자가 해당 원문의 복사본을 이미 보유했는지 조회.
+     * @param sourceDocumentId 원문 문서 ID
+     * @param userId 현재 사용자 ID
+     * @return 해당 사용자의 복사본이 있으면 Optional에 담아 반환, 없으면 empty
+     */
+    @Transactional(readOnly = true)
+    public Optional<DocumentResponse> findMyCopyBySourceId(Long sourceDocumentId, Long userId) {
+        if (sourceDocumentId == null || userId == null) return Optional.empty();
+        return documentRepository.findBySourceDocument_IdAndCreatedBy_Id(sourceDocumentId, userId)
+                .map(this::toResponse);
+    }
+
     @Transactional(readOnly = true)
     public List<DocumentResponse> findAll() {
         List<Document> allDocs = documentRepository.findAll();

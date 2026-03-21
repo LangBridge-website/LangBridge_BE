@@ -154,6 +154,20 @@ public class DocumentController {
     }
 
     @Operation(
+            summary = "URL 중복 체크",
+            description = "해당 URL로 이미 문서가 존재하는지 확인합니다. 초벌 번역 중복 방지용."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "조회 성공")
+    })
+    @GetMapping("/check-url")
+    public ResponseEntity<Map<String, Object>> checkUrlExists(
+            @Parameter(description = "검사할 URL", required = true) @RequestParam String url) {
+        boolean exists = documentService.existsByOriginalUrl(url);
+        return ResponseEntity.ok(Map.of("exists", exists));
+    }
+
+    @Operation(
             summary = "문서 상세 조회",
             description = "문서 ID로 문서 상세 정보를 조회합니다."
     )
@@ -183,6 +197,34 @@ public class DocumentController {
     public ResponseEntity<List<DocumentResponse>> getCopiesBySourceId(
             @Parameter(description = "원문 문서 ID", required = true) @PathVariable Long sourceDocumentId) {
         return ResponseEntity.ok(documentService.findCopiesBySourceDocumentId(sourceDocumentId));
+    }
+
+    @Operation(
+            summary = "내 복사본 조회",
+            description = "현재 로그인 사용자가 해당 원문에서 만든 복사본이 있는지 조회합니다. 번역 시작 전 중복 방지용."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "복사본 있음", content = @Content(schema = @Schema(implementation = DocumentResponse.class))),
+            @ApiResponse(responseCode = "404", description = "복사본 없음")
+    })
+    @GetMapping("/{sourceDocumentId}/my-copy")
+    public ResponseEntity<DocumentResponse> getMyCopyBySourceId(
+            @Parameter(hidden = true) @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @Parameter(description = "원문 문서 ID", required = true) @PathVariable Long sourceDocumentId) {
+        Long userId = null;
+        if (authHeader != null && !authHeader.isEmpty()) {
+            try {
+                userId = adminAuthUtil.getUserIdFromToken(authHeader);
+            } catch (Exception e) {
+                log.warn("토큰에서 사용자 ID 추출 실패: {}", e.getMessage());
+            }
+        }
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        return documentService.findMyCopyBySourceId(sourceDocumentId, userId)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
     }
 
     @Operation(
