@@ -13,6 +13,7 @@ import com.project.Transflow.task.entity.TranslationTask;
 import com.project.Transflow.task.repository.TranslationTaskRepository;
 import com.project.Transflow.document.repository.DocumentFavoriteRepository;
 import com.project.Transflow.document.repository.HandoverHistoryRepository;
+import com.project.Transflow.review.repository.ReviewRepository;
 import com.project.Transflow.user.entity.User;
 import com.project.Transflow.user.repository.UserRepository;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -42,6 +43,7 @@ public class DocumentService {
     private final TranslationTaskRepository translationTaskRepository;
     private final DocumentFavoriteRepository documentFavoriteRepository;
     private final HandoverHistoryRepository handoverHistoryRepository;
+    private final ReviewRepository reviewRepository;
     private final ObjectMapper objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
 
     @Transactional
@@ -402,6 +404,9 @@ public class DocumentService {
 
         // 인계 히스토리 삭제
         handoverHistoryRepository.deleteByDocument_Id(documentId);
+
+        // 리뷰 삭제 (document_version FK 때문에 버전보다 먼저 제거)
+        reviewRepository.deleteByDocument_Id(documentId);
 
         // 버전 삭제 + currentVersionId 초기화
         List<DocumentVersion> versions = documentVersionRepository.findByDocument_Id(documentId);
