@@ -6,6 +6,7 @@ import com.project.Transflow.document.entity.Document;
 import com.project.Transflow.document.entity.DocumentVersion;
 import com.project.Transflow.document.repository.DocumentRepository;
 import com.project.Transflow.document.repository.DocumentVersionRepository;
+import com.project.Transflow.review.repository.ReviewRepository;
 import com.project.Transflow.user.entity.User;
 import com.project.Transflow.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -25,6 +26,7 @@ public class DocumentVersionService {
     private final DocumentVersionRepository documentVersionRepository;
     private final DocumentRepository documentRepository;
     private final UserRepository userRepository;
+    private final ReviewRepository reviewRepository;
 
     @Transactional
     public DocumentVersionResponse createVersion(Long documentId, CreateDocumentVersionRequest request, Long createdById) {
@@ -131,6 +133,7 @@ public class DocumentVersionService {
     public void deleteAllVersionsByDocumentId(Long documentId) {
         List<DocumentVersion> versions = documentVersionRepository.findByDocument_Id(documentId);
         if (!versions.isEmpty()) {
+            reviewRepository.deleteByDocument_Id(documentId);
             documentVersionRepository.deleteAll(versions);
             log.info("문서의 모든 버전 삭제: 문서 ID {}, 삭제된 버전 수 {}", documentId, versions.size());
             
