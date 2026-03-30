@@ -44,6 +44,13 @@ public class DocumentResponse {
     @Schema(description = "현재 활성 버전 번호", example = "2")
     private Integer currentVersionNumber;
 
+    /**
+     * 목록·UI 표시용. v1=초벌 기준, v2=첫 수동 저장… (저장 스키마의 version_number와 동일하게 1부터 맞춤.
+     * 원문(ORIGINAL, DB 0)만 가리킬 때는 1로 통일)
+     */
+    @Schema(description = "표시용 현재 버전 번호 (v1=초벌, v2=첫 수동…)", example = "2")
+    private Integer userFacingVersionNumber;
+
     @Schema(description = "현재 버전이 최종(FINAL) 여부", example = "true")
     private Boolean currentVersionIsFinal;
 
@@ -79,6 +86,15 @@ public class DocumentResponse {
 
     @Schema(description = "최신 인계 정보")
     private HandoverInfo latestHandover;
+
+    @Schema(description = "동일 원문에 관리자 번역 세션이 활성화되어 있는지(하트비트 TTL 내)")
+    private Boolean adminTranslationSessionActive;
+
+    @Schema(description = "관리자가 번역 중인 복사본 문서 ID (원문 기준)")
+    private Long adminSessionCopyDocumentId;
+
+    @Schema(description = "관리자 번역 세션 사용자(표시용)")
+    private CreatorInfo adminSessionUser;
 
     @Getter
     @Setter

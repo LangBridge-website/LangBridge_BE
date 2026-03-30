@@ -40,5 +40,9 @@ public interface DocumentRepository extends JpaRepository<Document, Long> {
 
     /** 원문 ID + 생성자 ID로 복사본 조회 (내가 해당 원문에서 만든 복사본이 있는지 확인) */
     Optional<Document> findBySourceDocument_IdAndCreatedBy_Id(Long sourceDocumentId, Long createdById);
+
+    /** 원문 ID별 IN_TRANSLATION 복사본 수 (목록 인원 칸용 배치 조회) */
+    @Query("SELECT d.sourceDocument.id, COUNT(d) FROM Document d WHERE d.sourceDocument.id IN :sourceIds AND d.status = 'IN_TRANSLATION' GROUP BY d.sourceDocument.id")
+    List<Object[]> countInTranslationCopiesGroupedBySourceId(@Param("sourceIds") List<Long> sourceIds);
 }
 
