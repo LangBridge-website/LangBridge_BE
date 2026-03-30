@@ -26,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -35,6 +36,9 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class DocumentService {
+
+    /** 관리자 번역 세션 하트비트 TTL (분). 이 시간 동안 갱신 없으면 비활성으로 간주 */
+    public static final int ADMIN_SESSION_TTL_MINUTES = 5;
 
     private final DocumentRepository documentRepository;
     private final DocumentVersionRepository documentVersionRepository;
@@ -181,6 +185,28 @@ public class DocumentService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * 원문 ID 목록에 대해 IN_TRANSLATION 상태 복사본 개수만 배치 조회 (목록 인원 칸용).
+     */
+    @Transactional(readOnly = true)
+    public Map<Long, Long> countInTranslationCopiesBySourceIds(List<Long> sourceIds) {
+        Map<Long, Long> result = new HashMap<>();
+        if (sourceIds == null || sourceIds.isEmpty()) {
+            return result;
+        }
+        List<Long> distinct = sourceIds.stream().distinct().collect(Collectors.toList());
+        for (Long id : distinct) {
+            result.put(id, 0L);
+        }
+        List<Object[]> rows = documentRepository.countInTranslationCopiesGroupedBySourceId(distinct);
+        for (Object[] row : rows) {
+            Long sourceId = (Long) row[0];
+            long cnt = ((Number) row[1]).longValue();
+            result.put(sourceId, cnt);
+        }
+        return result;
+    }
+
     /** 원문만 조회 (복사본 제외). URL 기준 중복 제거 없이 원문을 항상 노출할 때 사용. */
     @Transactional(readOnly = true)
     public List<DocumentResponse> findSourceDocumentsOnly() {
@@ -288,7 +314,10 @@ public class DocumentService {
                 .findByDocument_IdOrderByVersionNumberAsc(sourceDocumentId).stream()
                 .filter(v -> "ORIGINAL".equals(v.getVersionType()) || "AI_DRAFT".equals(v.getVersionType()))
                 .collect(Collectors.toList());
-        DocumentVersion lastCopied = null;
+        if (sourceVersions.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "원문에 ORIGINAL 또는 AI_DRAFT 버전이 없어 번역 복사본을 만들 수 없습니다.");
+        }
         for (DocumentVersion sv : sourceVersions) {
             DocumentVersion cv = DocumentVersion.builder()
                     .document(copy)
@@ -298,12 +327,38 @@ public class DocumentService {
                     .isFinal(sv.getIsFinal())
                     .createdBy(user)
                     .build();
-            lastCopied = documentVersionRepository.save(cv);
+            documentVersionRepository.save(cv);
         }
-        if (lastCopied != null) {
-            copy.setCurrentVersionId(lastCopied.getId());
-            documentRepository.save(copy);
+
+        // 사람 번역 레이어(v2): 초벌(v1) 기준으로 복사본을 열면 현재 버전은 수동 번역부터 (저장 전에도 v2로 표시)
+        String manualBaseContent = "";
+        for (DocumentVersion sv : sourceVersions) {
+            if ("AI_DRAFT".equals(sv.getVersionType()) && sv.getContent() != null) {
+                manualBaseContent = sv.getContent();
+                break;
+            }
         }
+        if (manualBaseContent.isEmpty()) {
+            for (DocumentVersion sv : sourceVersions) {
+                if ("ORIGINAL".equals(sv.getVersionType()) && sv.getContent() != null) {
+                    manualBaseContent = sv.getContent();
+                    break;
+                }
+            }
+        }
+        // 원문·기존 복사본 전체의 최대 버전 다음 번호 (다른 곳에 v2가 있으면 새 복사본 첫 수동은 v3)
+        int nextManualVersionNumber = nextVersionNumberAfterFamilyMax(sourceDocumentId);
+        DocumentVersion initialManual = DocumentVersion.builder()
+                .document(copy)
+                .versionNumber(nextManualVersionNumber)
+                .versionType("MANUAL_TRANSLATION")
+                .content(manualBaseContent != null ? manualBaseContent : "")
+                .isFinal(false)
+                .createdBy(user)
+                .build();
+        DocumentVersion savedManual = documentVersionRepository.save(initialManual);
+        copy.setCurrentVersionId(savedManual.getId());
+        documentRepository.save(copy);
 
         TranslationTask task = TranslationTask.builder()
                 .document(copy)
@@ -363,7 +418,7 @@ public class DocumentService {
 
         Optional<DocumentVersion> fromLatest = documentVersionRepository.findFirstByDocument_IdOrderByVersionNumberDesc(fromDocumentId);
         if (fromLatest.isPresent() && ("MANUAL_TRANSLATION".equals(fromLatest.get().getVersionType()) || "AI_DRAFT".equals(fromLatest.get().getVersionType()))) {
-            int nextVersionNum = sourceVersions.isEmpty() ? 2 : sourceVersions.get(sourceVersions.size() - 1).getVersionNumber() + 1;
+            int nextVersionNum = nextVersionNumberAfterFamilyMax(sourceId);
             DocumentVersion continued = DocumentVersion.builder()
                     .document(copy)
                     .versionNumber(nextVersionNum)
@@ -392,6 +447,14 @@ public class DocumentService {
         translationTaskRepository.save(task);
         log.info("이어받기 복사본 생성: fromDocId={}, copyId={}, userId={}", fromDocumentId, copy.getId(), userId);
         return toResponse(copy);
+    }
+
+    /**
+     * 동일 원문(source) 계열(원문 + 모든 복사본)에서 최대 version_number + 1.
+     */
+    private int nextVersionNumberAfterFamilyMax(Long sourceId) {
+        int max = documentVersionRepository.findMaxVersionNumberInSourceFamily(sourceId).orElse(-1);
+        return max + 1;
     }
 
     @Transactional
@@ -453,10 +516,19 @@ public class DocumentService {
         
         Integer currentVersionNumber = null;
         Boolean currentVersionIsFinal = null;
+        Integer userFacingVersionNumber = null;
         if (document.getCurrentVersionId() != null) {
             var currentVersionOpt = documentVersionRepository.findById(document.getCurrentVersionId());
-            currentVersionNumber = currentVersionOpt.map(DocumentVersion::getVersionNumber).orElse(null);
-            currentVersionIsFinal = currentVersionOpt.map(v -> Boolean.TRUE.equals(v.getIsFinal())).orElse(null);
+            if (currentVersionOpt.isPresent()) {
+                DocumentVersion cv = currentVersionOpt.get();
+                currentVersionNumber = cv.getVersionNumber();
+                currentVersionIsFinal = Boolean.TRUE.equals(cv.getIsFinal());
+                if ("ORIGINAL".equals(cv.getVersionType())) {
+                    userFacingVersionNumber = 1;
+                } else {
+                    userFacingVersionNumber = cv.getVersionNumber();
+                }
+            }
         }
 
         // sourceDocumentId (원문 참조)
@@ -488,6 +560,7 @@ public class DocumentService {
                 .status(document.getStatus())
                 .currentVersionId(document.getCurrentVersionId())
                 .currentVersionNumber(currentVersionNumber)
+                .userFacingVersionNumber(userFacingVersionNumber)
                 .currentVersionIsFinal(currentVersionIsFinal)
                 .estimatedLength(document.getEstimatedLength())
                 .versionCount(versionCount)
@@ -549,7 +622,140 @@ public class DocumentService {
             builder.latestHandover(handoverBuilder.build());
         }
 
+        enrichAdminSession(document, builder);
+
         return builder.build();
+    }
+
+    /**
+     * 원문(또는 복사본) 기준 루트 원문 문서를 반환합니다.
+     */
+    public Document getSourceRoot(Document document) {
+        if (document.getSourceDocument() == null) {
+            return document;
+        }
+        Long sid = document.getSourceDocument().getId();
+        return documentRepository.findById(sid).orElse(document);
+    }
+
+    public boolean isAdminTranslationSessionActive(Document source) {
+        if (source == null
+                || source.getAdminSessionCopyDocumentId() == null
+                || source.getAdminSessionAt() == null) {
+            return false;
+        }
+        return source.getAdminSessionAt().isAfter(LocalDateTime.now().minusMinutes(ADMIN_SESSION_TTL_MINUTES));
+    }
+
+    private void enrichAdminSession(Document document, DocumentResponse.DocumentResponseBuilder builder) {
+        Document source = getSourceRoot(document);
+        if (!isAdminTranslationSessionActive(source)) {
+            builder.adminTranslationSessionActive(false)
+                    .adminSessionCopyDocumentId(null)
+                    .adminSessionUser(null);
+            return;
+        }
+        builder.adminTranslationSessionActive(true)
+                .adminSessionCopyDocumentId(source.getAdminSessionCopyDocumentId());
+        Long uid = source.getAdminSessionUserId();
+        if (uid != null) {
+            userRepository.findById(uid).ifPresent(u -> builder.adminSessionUser(DocumentResponse.CreatorInfo.builder()
+                    .id(u.getId())
+                    .email(u.getEmail())
+                    .name(u.getName())
+                    .build()));
+        }
+    }
+
+    /**
+     * 번역 임시저장/완료/인계 편집 권한:
+     * - 관리자 세션이 없으면 누구나 허용
+     * - 관리자 세션이 있으면 세션을 연 사용자만 허용 (관리자/봉사자 모두 동일 규칙)
+     */
+    public void assertVolunteerCanEditTranslation(Long documentId, Long userId, Integer roleLevel) {
+        Document doc = documentRepository.findById(documentId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "문서를 찾을 수 없습니다."));
+        Document source = getSourceRoot(doc);
+        if (!isAdminTranslationSessionActive(source)) {
+            return;
+        }
+        Long sessionOwnerId = source.getAdminSessionUserId();
+        if (sessionOwnerId != null && sessionOwnerId.equals(userId)) {
+            return;
+        }
+        throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                "중앙/최고 관리자가 이 원문 번역을 진행 중입니다. 세션 소유자만 편집할 수 있습니다.");
+    }
+
+    @Transactional
+    public void startAdminTranslationSession(Long copyDocumentId, Long adminUserId) {
+        Document copy = documentRepository.findById(copyDocumentId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "문서를 찾을 수 없습니다."));
+        if (copy.getSourceDocument() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "원문 문서에는 관리자 번역 세션을 연결할 수 없습니다. 복사본 문서에서 시작하세요.");
+        }
+        Document source = getSourceRoot(copy);
+        source.setAdminSessionCopyDocumentId(copy.getId());
+        source.setAdminSessionUserId(adminUserId);
+        source.setAdminSessionAt(LocalDateTime.now());
+        documentRepository.save(source);
+        log.info("관리자 번역 세션 시작: sourceId={}, copyId={}, adminUserId={}", source.getId(), copy.getId(), adminUserId);
+    }
+
+    @Transactional
+    public void heartbeatAdminTranslationSession(Long copyDocumentId, Long adminUserId) {
+        Document copy = documentRepository.findById(copyDocumentId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "문서를 찾을 수 없습니다."));
+        if (copy.getSourceDocument() == null) {
+            return;
+        }
+        Document source = getSourceRoot(copy);
+        if (!adminUserId.equals(source.getAdminSessionUserId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "이 세션을 연 관리자가 아닙니다.");
+        }
+        if (!copy.getId().equals(source.getAdminSessionCopyDocumentId())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "원문에 다른 복사본이 관리자 세션으로 등록되어 있습니다.");
+        }
+        source.setAdminSessionAt(LocalDateTime.now());
+        documentRepository.save(source);
+    }
+
+    @Transactional
+    public void endAdminTranslationSession(Long copyDocumentId, Long adminUserId) {
+        Document copy = documentRepository.findById(copyDocumentId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "문서를 찾을 수 없습니다."));
+        if (copy.getSourceDocument() == null) {
+            return;
+        }
+        Document source = getSourceRoot(copy);
+        if (!adminUserId.equals(source.getAdminSessionUserId())) {
+            return;
+        }
+        source.setAdminSessionCopyDocumentId(null);
+        source.setAdminSessionUserId(null);
+        source.setAdminSessionAt(null);
+        documentRepository.save(source);
+        log.info("관리자 번역 세션 종료: copyId={}, adminUserId={}", copyDocumentId, adminUserId);
+    }
+
+    /**
+     * 번역 완료 등으로 관리자 세션을 해제합니다(해당 복사본이 세션 대상일 때만).
+     */
+    @Transactional
+    public void clearAdminTranslationSessionIfEditingCopy(Long documentId) {
+        Document doc = documentRepository.findById(documentId).orElse(null);
+        if (doc == null || doc.getSourceDocument() == null) {
+            return;
+        }
+        Document source = getSourceRoot(doc);
+        if (doc.getId().equals(source.getAdminSessionCopyDocumentId())) {
+            source.setAdminSessionCopyDocumentId(null);
+            source.setAdminSessionUserId(null);
+            source.setAdminSessionAt(null);
+            documentRepository.save(source);
+            log.info("번역 완료로 관리자 세션 해제: copyId={}", documentId);
+        }
     }
 }
 
