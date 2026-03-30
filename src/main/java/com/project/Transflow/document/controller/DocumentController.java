@@ -25,6 +25,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import javax.validation.Valid;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -151,6 +152,19 @@ public class DocumentController {
         }
 
         return ResponseEntity.ok(documents);
+    }
+
+    @Operation(
+            summary = "원문별 번역 중(IN_TRANSLATION) 복사본 개수 배치 조회",
+            description = "번역 대기 목록 인원 칸용. 복사본 전체 목록 없이 개수만 반환합니다."
+    )
+    @PostMapping("/in-translation-copy-counts")
+    public ResponseEntity<Map<Long, Long>> countInTranslationCopiesBySourceIds(
+            @RequestBody(required = false) List<Long> sourceDocumentIds) {
+        if (sourceDocumentIds == null) {
+            return ResponseEntity.ok(Collections.emptyMap());
+        }
+        return ResponseEntity.ok(documentService.countInTranslationCopiesBySourceIds(sourceDocumentIds));
     }
 
     @Operation(
@@ -286,6 +300,57 @@ public class DocumentController {
     }
 
     @Operation(
+            summary = "관리자 번역 세션 시작",
+            description = "중앙/최고 관리자가 복사본에서 번역 작업을 시작할 때 호출합니다. 동일 원문의 봉사자 임시저장/완료를 막습니다."
+    )
+    @PostMapping("/{documentId}/admin-translation-session")
+    public ResponseEntity<Map<String, Object>> startAdminTranslationSession(
+            @Parameter(hidden = true) @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @PathVariable Long documentId) {
+        if (authHeader == null || authHeader.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        if (!adminAuthUtil.isAdminOrAbove(authHeader)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("success", false, "message", "관리자 권한이 필요합니다."));
+        }
+        Long userId = adminAuthUtil.getUserIdFromToken(authHeader);
+        documentService.startAdminTranslationSession(documentId, userId);
+        return ResponseEntity.ok(Map.of("success", true, "message", "관리자 번역 세션이 시작되었습니다."));
+    }
+
+    @Operation(summary = "관리자 번역 세션 하트비트", description = "작업 중 주기적으로 호출해 세션을 유지합니다.")
+    @PutMapping("/{documentId}/admin-translation-session/heartbeat")
+    public ResponseEntity<Map<String, Object>> heartbeatAdminTranslationSession(
+            @Parameter(hidden = true) @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @PathVariable Long documentId) {
+        if (authHeader == null || authHeader.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        if (!adminAuthUtil.isAdminOrAbove(authHeader)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        Long userId = adminAuthUtil.getUserIdFromToken(authHeader);
+        documentService.heartbeatAdminTranslationSession(documentId, userId);
+        return ResponseEntity.ok(Map.of("success", true));
+    }
+
+    @Operation(summary = "관리자 번역 세션 종료", description = "번역 화면을 벗어날 때 호출합니다.")
+    @DeleteMapping("/{documentId}/admin-translation-session")
+    public ResponseEntity<Map<String, Object>> endAdminTranslationSession(
+            @Parameter(hidden = true) @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @PathVariable Long documentId) {
+        if (authHeader == null || authHeader.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        if (!adminAuthUtil.isAdminOrAbove(authHeader)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        Long userId = adminAuthUtil.getUserIdFromToken(authHeader);
+        documentService.endAdminTranslationSession(documentId, userId);
+        return ResponseEntity.ok(Map.of("success", true, "message", "세션이 종료되었습니다."));
+    }
+
+    @Operation(
             summary = "번역 완료",
             description = "번역 작업을 완료하고 검토 대기 상태로 변경합니다. (락 없이 문서에 직접 저장)"
     )
@@ -311,6 +376,9 @@ public class DocumentController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
 
+        Integer roleLevel = adminAuthUtil.getRoleLevelFromToken(authHeader);
+        documentService.assertVolunteerCanEditTranslation(documentId, userId, roleLevel);
+
         CreateDocumentVersionRequest versionRequest = new CreateDocumentVersionRequest();
         versionRequest.setVersionType("MANUAL_TRANSLATION");
         versionRequest.setContent(request.getContent());
@@ -321,6 +389,8 @@ public class DocumentController {
         updateRequest.setStatus("PENDING_REVIEW");
         updateRequest.setCompletedParagraphs(request.getCompletedParagraphs());
         documentService.updateDocument(documentId, updateRequest, userId);
+
+        documentService.clearAdminTranslationSessionIfEditingCopy(documentId);
 
         return ResponseEntity.ok(Map.of("success", true, "message", "번역이 완료되었습니다.", "status", "PENDING_REVIEW"));
     }
@@ -358,6 +428,11 @@ public class DocumentController {
             }
             log.warn("Authorization 없음: 기본 사용자 ID {} 사용", userId);
         }
+        Integer roleLevel = authHeader != null && !authHeader.isEmpty()
+                ? adminAuthUtil.getRoleLevelFromToken(authHeader)
+                : null;
+        documentService.assertVolunteerCanEditTranslation(documentId, userId, roleLevel);
+
         CreateDocumentVersionRequest versionRequest = new CreateDocumentVersionRequest();
         versionRequest.setVersionType("MANUAL_TRANSLATION");
         versionRequest.setContent(request.getContent());
@@ -393,6 +468,10 @@ public class DocumentController {
                 log.warn("토큰에서 사용자 ID 추출 실패: {}", e.getMessage());
             }
         }
+        Integer handoverRoleLevel = authHeader != null && !authHeader.isEmpty()
+                ? adminAuthUtil.getRoleLevelFromToken(authHeader)
+                : null;
+        documentService.assertVolunteerCanEditTranslation(documentId, userId, handoverRoleLevel);
         handoverHistoryService.createHandover(documentId, request, userId);
         return ResponseEntity.ok(Map.of("success", true, "message", "인계 요청이 등록되었습니다."));
     }

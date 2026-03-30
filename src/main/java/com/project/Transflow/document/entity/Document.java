@@ -71,5 +71,23 @@ public class Document {
     @UpdateTimestamp
     @Column(nullable = false)
     private LocalDateTime updatedAt;
+
+    /**
+     * 원문(source_document_id가 null) 문서에만 사용: 관리자가 번역 중인 복사본 문서 ID
+     */
+    @Column(name = "admin_session_copy_document_id")
+    private Long adminSessionCopyDocumentId;
+
+    /**
+     * 원문에만 사용: 관리자 번역 세션을 연 사용자 ID
+     */
+    @Column(name = "admin_session_user_id")
+    private Long adminSessionUserId;
+
+    /**
+     * 원문에만 사용: 마지막 하트비트 시각 (TTL 판단)
+     */
+    @Column(name = "admin_session_at")
+    private LocalDateTime adminSessionAt;
 }
 
