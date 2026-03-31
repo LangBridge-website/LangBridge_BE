@@ -12,7 +12,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -67,6 +70,20 @@ public class DocumentFavoriteService {
     @Transactional(readOnly = true)
     public boolean isFavorite(Long userId, Long documentId) {
         return favoriteRepository.existsByUserIdAndDocumentId(userId, documentId);
+    }
+
+    /**
+     * 주어진 문서 id 집합 중, 현재 사용자가 찜한 문서 id만 반환 (목록 N+1 방지용).
+     */
+    @Transactional(readOnly = true)
+    public Set<Long> findFavoriteDocumentIdsIn(Long userId, Collection<Long> documentIds) {
+        if (documentIds == null || documentIds.isEmpty()) {
+            return Set.of();
+        }
+        List<Long> idList = documentIds.stream()
+                .distinct()
+                .collect(Collectors.toList());
+        return new HashSet<>(favoriteRepository.findFavoriteDocumentIdsByUserIdAndDocumentIdIn(userId, idList));
     }
 }
 

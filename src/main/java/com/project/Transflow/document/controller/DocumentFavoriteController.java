@@ -15,8 +15,11 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Slf4j
 @RestController
@@ -122,6 +125,37 @@ public class DocumentFavoriteController {
 
         List<DocumentResponse> favorites = favoriteService.getFavoriteDocuments(userId);
         return ResponseEntity.ok(favorites);
+    }
+
+    @Operation(
+            summary = "문서 찜 여부 일괄 조회",
+            description = "주어진 문서 id 목록 중, 현재 사용자가 찜한 문서 id만 반환합니다. (목록 화면 N+1 방지)"
+    )
+    @PostMapping("/favorites/bulk-status")
+    public ResponseEntity<Map<String, Object>> getFavoriteBulkStatus(
+            @Parameter(hidden = true) @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @RequestBody(required = false) Map<String, List<Long>> body) {
+
+        Long userId = null;
+        if (authHeader != null && !authHeader.isEmpty()) {
+            try {
+                userId = adminAuthUtil.getUserIdFromToken(authHeader);
+            } catch (Exception e) {
+                log.warn("토큰에서 사용자 ID 추출 실패: {}", e.getMessage());
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+            }
+        } else {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+
+        List<Long> documentIds = body != null && body.get("documentIds") != null
+                ? body.get("documentIds")
+                : List.of();
+
+        Set<Long> favoriteIds = favoriteService.findFavoriteDocumentIdsIn(userId, documentIds);
+        Map<String, Object> res = new HashMap<>();
+        res.put("favoriteDocumentIds", new ArrayList<>(favoriteIds));
+        return ResponseEntity.ok(res);
     }
 
     @Operation(
