@@ -61,11 +61,33 @@ public class JwtUtil {
     }
 
     public Long extractUserId(String token) {
-        return extractClaims(token).get("userId", Long.class);
+        Object v = extractClaims(token).get("userId");
+        if (v instanceof Number) {
+            return ((Number) v).longValue();
+        }
+        if (v instanceof String) {
+            try {
+                return Long.parseLong((String) v);
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
     }
 
     public Integer extractRoleLevel(String token) {
-        return extractClaims(token).get("roleLevel", Integer.class);
+        Object v = extractClaims(token).get("roleLevel");
+        if (v instanceof Number) {
+            return ((Number) v).intValue();
+        }
+        if (v instanceof String) {
+            try {
+                return Integer.parseInt((String) v);
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
     }
 
     public boolean isTokenExpired(String token) {
