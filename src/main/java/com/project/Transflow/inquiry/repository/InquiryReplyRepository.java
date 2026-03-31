@@ -14,4 +14,6 @@ public interface InquiryReplyRepository extends JpaRepository<InquiryReply, Long
     long countByInquiryIdAndDeletedAtIsNull(Long inquiryId);
 
     long countByInquiryIdAndDeletedAtIsNullAndCreatedAtAfter(Long inquiryId, java.time.LocalDateTime after);
+
+    void deleteByInquiryId(Long inquiryId);
 }

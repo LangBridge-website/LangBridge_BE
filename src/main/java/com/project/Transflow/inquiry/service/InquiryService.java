@@ -110,6 +110,8 @@ public class InquiryService {
         if (hasActiveReply(inquiryId)) {
             throw new IllegalArgumentException("관리자 답변이 달린 문의는 삭제할 수 없습니다.");
         }
+        // 소프트 삭제된 답변 row도 FK를 잡고 있으므로 부모 삭제 전에 물리 삭제
+        inquiryReplyRepository.deleteByInquiryId(inquiryId);
         readStateRepository.deleteAll(readStateRepository.findAllByInquiryId(inquiryId));
         inquiryRepository.delete(inquiry);
     }
