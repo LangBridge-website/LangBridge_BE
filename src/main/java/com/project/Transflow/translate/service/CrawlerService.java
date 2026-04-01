@@ -9,6 +9,7 @@ import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.HashMap;
@@ -19,7 +20,10 @@ import java.util.Map;
 public class CrawlerService {
 
     private static final int TIMEOUT = 30000; // 30 seconds (Playwright는 더 오래 걸릴 수 있음)
-    
+
+    @Autowired
+    private PdfExtractionService pdfExtractionService;
+
     // Playwright 인스턴스를 재사용하기 위한 필드 (스레드 안전하게 관리 필요)
     private Playwright playwright;
 
@@ -71,10 +75,18 @@ public class CrawlerService {
 
     /**
      * 웹페이지의 HTML과 CSS를 함께 가져오는 메서드 (Playwright 사용)
+     * PDF URL인 경우 PdfExtractionService로 자동 분기합니다.
+     *
      * @param url 크롤링할 URL
      * @return Map containing "html" and "css" keys
      */
     public Map<String, String> crawlWebPageWithStyles(String url) {
+        // PDF URL이면 PDFBox로 텍스트 추출
+        if (pdfExtractionService != null && pdfExtractionService.isPdfUrl(url)) {
+            log.info("PDF URL 감지됨 — PdfExtractionService로 처리: {}", url);
+            return pdfExtractionService.extractToHtml(url);
+        }
+
         if (playwright == null) {
             log.error("Playwright가 초기화되지 않았습니다. Playwright 설치가 필요합니다.");
             throw new RuntimeException("Playwright가 설치되지 않았습니다. 백엔드 설정을 확인해주세요.");
