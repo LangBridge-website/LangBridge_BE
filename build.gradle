@@ -77,6 +77,9 @@ dependencies {
 
     // Playwright for full browser rendering and CSS extraction
     implementation 'com.microsoft.playwright:playwright:1.45.0'
+
+    // Apache PDFBox for PDF text extraction
+    implementation 'org.apache.pdfbox:pdfbox:2.0.31'
     
     // Netty native DNS resolver for MacOS (경고 제거)
     implementation 'io.netty:netty-resolver-dns-native-macos:4.1.100.Final:osx-aarch_64'

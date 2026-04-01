@@ -43,7 +43,7 @@ public class HtmlTranslationService {
 
     public String translateHtml(String html, String targetLang, String sourceLang, String glossaryId) {
         try {
-            log.info("HTML 번역 시작 - Target: {}, HTML 길이: {}자", targetLang, html.length());
+            log.info("HTML 번역 시작 - Target: {}, Source: {}, HTML 길이: {}자", targetLang, sourceLang, html.length());
 
             Document doc = Jsoup.parse(html);
             
@@ -114,7 +114,6 @@ public class HtmlTranslationService {
             String translatedHtml = doc.outerHtml();
             
             // 디버깅: 번역이 제대로 적용되었는지 확인
-            // 원본 텍스트가 남아있는지 체크 (일부만)
             int originalTextCount = 0;
             for (TranslatableText tt : translatableTexts) {
                 String currentText = tt.textNode.text().trim();
