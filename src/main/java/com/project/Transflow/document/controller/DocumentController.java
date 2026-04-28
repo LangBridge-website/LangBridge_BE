@@ -10,6 +10,7 @@ import com.project.Transflow.document.dto.UpdateDocumentRequest;
 import com.project.Transflow.document.service.DocumentService;
 import com.project.Transflow.document.service.HandoverHistoryService;
 import com.project.Transflow.document.service.DocumentVersionService;
+import com.project.Transflow.notification.service.TranslationNotificationMailService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -45,6 +46,7 @@ public class DocumentController {
     private final HandoverHistoryService handoverHistoryService;
     private final AdminAuthUtil adminAuthUtil;
     private final UserRepository userRepository;
+    private final TranslationNotificationMailService translationNotificationMailService;
 
     @Operation(
             summary = "문서 생성",
@@ -391,6 +393,15 @@ public class DocumentController {
         documentService.updateDocument(documentId, updateRequest, userId);
 
         documentService.clearAdminTranslationSessionIfEditingCopy(documentId);
+
+        String documentTitle = documentService.findById(documentId)
+                .map(DocumentResponse::getTitle)
+                .orElse("(제목 없음)");
+        try {
+            translationNotificationMailService.sendTranslationCompletedToAdmins(documentId, documentTitle);
+        } catch (Exception e) {
+            log.error("번역 완료 알림 메일 발송 실패: documentId={}", documentId, e);
+        }
 
         return ResponseEntity.ok(Map.of("success", true, "message", "번역이 완료되었습니다.", "status", "PENDING_REVIEW"));
     }
