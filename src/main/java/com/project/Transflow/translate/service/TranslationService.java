@@ -20,11 +20,14 @@ public class TranslationService {
 
     private final WebClient webClient;
     private final ApiKeyService apiKeyService;
+    private final KoreanStylePostProcessor koreanStylePostProcessor;
 
     public TranslationService(
             @Value("${deepl.api.url}") String apiUrl,
-            ApiKeyService apiKeyService) {
+            ApiKeyService apiKeyService,
+            KoreanStylePostProcessor koreanStylePostProcessor) {
         this.apiKeyService = apiKeyService;
+        this.koreanStylePostProcessor = koreanStylePostProcessor;
         this.webClient = WebClient.builder()
                 .baseUrl(apiUrl)
                 .codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(10 * 1024 * 1024)) // 10MB
@@ -124,7 +127,7 @@ public class TranslationService {
                 if (response != null && response.getTranslations() != null && !response.getTranslations().isEmpty()) {
                     List<String> translatedTexts = new ArrayList<>();
                     for (com.project.Transflow.translate.dto.DeepLResponse.Translation translation : response.getTranslations()) {
-                        translatedTexts.add(translation.getText());
+                        translatedTexts.add(applyKoreanPlainStyle(translation.getText(), targetLang));
                     }
                     return translatedTexts;
                 }
@@ -232,7 +235,7 @@ public class TranslationService {
 
             if (response != null && response.getTranslations() != null && !response.getTranslations().isEmpty()) {
                 String translatedText = response.getTranslations().get(0).getText();
-                return translatedText;
+                return applyKoreanPlainStyle(translatedText, targetLang);
             }
 
             throw new RuntimeException("번역 결과가 비어있습니다.");
@@ -294,5 +297,15 @@ public class TranslationService {
         }
         
         throw new RuntimeException("번역 실패: 최대 재시도 횟수 초과");
+    }
+
+    private String applyKoreanPlainStyle(String translatedText, String targetLang) {
+        if (translatedText == null) {
+            return null;
+        }
+        if (targetLang == null || !"KO".equalsIgnoreCase(targetLang)) {
+            return translatedText;
+        }
+        return koreanStylePostProcessor.toPlainStyle(translatedText);
     }
 }
