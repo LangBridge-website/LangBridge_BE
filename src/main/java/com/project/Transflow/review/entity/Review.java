@@ -54,6 +54,16 @@ public class Review {
     @Column
     private LocalDateTime publishedAt; // 게시 시점 (creation.kr)
 
+    @Column(length = 500)
+    private String publishedUrl; // creation.kr 게시글 URL
+
+    @Column(length = 20)
+    @Builder.Default
+    private String publishStatus = "NONE"; // NONE, PENDING, SUCCESS, FAILED
+
+    @Column(columnDefinition = "TEXT")
+    private String publishError; // 게시 실패 사유
+
     @Column(nullable = false)
     @Builder.Default
     private Boolean isComplete = false; // 문서 번역 완료 여부 (false: 부분 번역, true: 완전 번역)

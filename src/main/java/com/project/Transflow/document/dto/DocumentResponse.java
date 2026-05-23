@@ -84,6 +84,21 @@ public class DocumentResponse {
     @Schema(description = "수정일시", example = "2024-01-01T00:00:00")
     private LocalDateTime updatedAt;
 
+    @Schema(description = "creation.kr 게시글 URL")
+    private String publishedUrl;
+
+    @Schema(description = "최신 승인 리뷰 ID (게시 API 호출용)")
+    private Long approvedReviewId;
+
+    @Schema(description = "게시 상태", example = "SUCCESS")
+    private String publishStatus;
+
+    @Schema(description = "게시 실패 사유")
+    private String publishError;
+
+    @Schema(description = "creation.kr 게시 시점")
+    private LocalDateTime publishedAt;
+
     @Schema(description = "최신 인계 정보")
     private HandoverInfo latestHandover;
 

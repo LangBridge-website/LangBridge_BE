@@ -51,6 +51,15 @@ public class ReviewResponse {
     @Schema(description = "게시 시점", example = "2024-01-01T00:00:00")
     private LocalDateTime publishedAt;
 
+    @Schema(description = "creation.kr 게시글 URL")
+    private String publishedUrl;
+
+    @Schema(description = "게시 상태", example = "SUCCESS", allowableValues = {"NONE", "PENDING", "SUCCESS", "FAILED"})
+    private String publishStatus;
+
+    @Schema(description = "게시 실패 사유")
+    private String publishError;
+
     @Schema(description = "문서 번역 완료 여부", example = "false")
     private Boolean isComplete;
 

@@ -7,6 +7,8 @@ import com.project.Transflow.document.repository.DocumentVersionRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.project.Transflow.publish.dto.PublishResult;
+import com.project.Transflow.publish.service.CreationKrPublishService;
 import com.project.Transflow.review.dto.CreateReviewRequest;
 import com.project.Transflow.review.dto.ReviewResponse;
 import com.project.Transflow.review.dto.UpdateReviewRequest;
@@ -35,6 +37,7 @@ public class ReviewService {
     private final DocumentRepository documentRepository;
     private final DocumentVersionRepository documentVersionRepository;
     private final UserRepository userRepository;
+    private final CreationKrPublishService creationKrPublishService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Transactional
@@ -160,28 +163,64 @@ public class ReviewService {
     }
 
     @Transactional
-    public ReviewResponse publishReview(Long reviewId, Long reviewerId) {
+    public ReviewResponse publishReview(Long reviewId, Long adminUserId) {
         Review review = reviewRepository.findById(reviewId)
                 .orElseThrow(() -> new IllegalArgumentException("리뷰를 찾을 수 없습니다: " + reviewId));
-
-        // 권한 체크
-        if (!review.getReviewer().getId().equals(reviewerId)) {
-            throw new IllegalArgumentException("본인의 리뷰만 게시할 수 있습니다.");
-        }
 
         if (!"APPROVED".equals(review.getStatus())) {
             throw new IllegalArgumentException("승인된 리뷰만 게시할 수 있습니다. 현재 상태: " + review.getStatus());
         }
 
-        review.setPublishedAt(LocalDateTime.now());
+        if (Boolean.FALSE.equals(review.getIsComplete())) {
+            throw new IllegalArgumentException("완전 번역으로 승인된 문서만 creation.kr에 게시할 수 있습니다.");
+        }
 
-        // Document 상태 업데이트
         Document document = review.getDocument();
+        if (!"APPROVED".equals(document.getStatus())) {
+            throw new IllegalArgumentException("문서 상태가 APPROVED가 아닙니다. 현재 상태: " + document.getStatus());
+        }
+
+        String currentPublishStatus = review.getPublishStatus() != null ? review.getPublishStatus() : "NONE";
+        if ("SUCCESS".equals(currentPublishStatus) && review.getPublishedUrl() != null && !review.getPublishedUrl().isBlank()) {
+            throw new IllegalArgumentException("이미 creation.kr에 게시된 문서입니다.");
+        }
+        if ("PENDING".equals(currentPublishStatus)) {
+            throw new IllegalArgumentException("게시가 진행 중입니다. 잠시 후 다시 시도해주세요.");
+        }
+
+        review.setPublishStatus("PENDING");
+        review.setPublishError(null);
+        reviewRepository.saveAndFlush(review);
+
+        PublishResult result;
+        try {
+            result = creationKrPublishService.publishFromReview(review);
+        } catch (IllegalStateException e) {
+            review.setPublishStatus("FAILED");
+            review.setPublishError(e.getMessage());
+            Review failed = reviewRepository.save(review);
+            return toResponse(failed);
+        }
+
+        if (!result.isSuccess()) {
+            review.setPublishStatus("FAILED");
+            review.setPublishError(result.getErrorMessage());
+            Review failed = reviewRepository.save(review);
+            return toResponse(failed);
+        }
+
+        review.setPublishStatus("SUCCESS");
+        review.setPublishedUrl(result.getPublishedUrl());
+        review.setPublishedAt(LocalDateTime.now());
+        review.setPublishError(null);
+
         document.setStatus("PUBLISHED");
+        document.setPublishedUrl(result.getPublishedUrl());
         documentRepository.save(document);
 
         Review saved = reviewRepository.save(review);
-        log.info("리뷰 게시: 리뷰 ID {}", reviewId);
+        log.info("리뷰 creation.kr 게시 완료: 리뷰 ID {}, adminUserId {}, URL {}",
+                reviewId, adminUserId, result.getPublishedUrl());
         return toResponse(saved);
     }
 
@@ -280,6 +319,9 @@ public class ReviewService {
                 .reviewedAt(review.getReviewedAt())
                 .finalApprovalAt(review.getFinalApprovalAt())
                 .publishedAt(review.getPublishedAt())
+                .publishedUrl(review.getPublishedUrl())
+                .publishStatus(review.getPublishStatus())
+                .publishError(review.getPublishError())
                 .isComplete(review.getIsComplete())
                 .createdAt(review.getCreatedAt())
                 .updatedAt(review.getUpdatedAt());

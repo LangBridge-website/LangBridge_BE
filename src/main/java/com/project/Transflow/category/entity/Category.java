@@ -30,6 +30,14 @@ public class Category {
     @Column(columnDefinition = "TEXT")
     private String description;
 
+    /** creation.kr 게시판 경로 (예: EvidenceofFlood, LIfe) */
+    @Column(length = 100)
+    private String creationKrSitePath;
+
+    /** creation.kr board ID (예: b201810315bd97ecb8e054) */
+    @Column(length = 100)
+    private String creationKrBoardId;
+
     @CreationTimestamp
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;

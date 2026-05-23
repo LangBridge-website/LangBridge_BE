@@ -36,6 +36,8 @@ public class CategoryService {
                 .code(request.getCode())
                 .name(request.getName())
                 .description(request.getDescription())
+                .creationKrSitePath(request.getCreationKrSitePath())
+                .creationKrBoardId(request.getCreationKrBoardId())
                 .build();
 
         Category saved = categoryRepository.save(category);
@@ -80,6 +82,14 @@ public class CategoryService {
             category.setDescription(request.getDescription());
         }
 
+        if (request.getCreationKrSitePath() != null) {
+            category.setCreationKrSitePath(request.getCreationKrSitePath().isBlank() ? null : request.getCreationKrSitePath().trim());
+        }
+
+        if (request.getCreationKrBoardId() != null) {
+            category.setCreationKrBoardId(request.getCreationKrBoardId().isBlank() ? null : request.getCreationKrBoardId().trim());
+        }
+
         Category saved = categoryRepository.save(category);
         log.info("카테고리 수정: {} (id: {})", saved.getName(), saved.getId());
         return toResponse(saved);
@@ -102,6 +112,8 @@ public class CategoryService {
                 .code(code)
                 .name(category.getName())
                 .description(category.getDescription())
+                .creationKrSitePath(category.getCreationKrSitePath())
+                .creationKrBoardId(category.getCreationKrBoardId())
                 .createdAt(category.getCreatedAt())
                 .updatedAt(category.getUpdatedAt())
                 .build();

@@ -29,6 +29,12 @@ public class CategoryResponse {
     @Schema(description = "카테고리 설명", example = "기술 관련 문서 카테고리")
     private String description;
 
+    @Schema(description = "creation.kr 게시판 경로", example = "EvidenceofFlood")
+    private String creationKrSitePath;
+
+    @Schema(description = "creation.kr board ID", example = "b201810315bd97ecb8e054")
+    private String creationKrBoardId;
+
     @Schema(description = "생성일시", example = "2024-01-01T00:00:00")
     private LocalDateTime createdAt;
 

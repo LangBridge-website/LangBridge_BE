@@ -1,8 +1,12 @@
 package com.project.Transflow.publish.service;
 
+import com.project.Transflow.document.entity.Document;
+import com.project.Transflow.document.entity.DocumentVersion;
 import com.project.Transflow.publish.config.CreationKrProperties;
+import com.project.Transflow.review.entity.Review;
 import com.project.Transflow.publish.dto.PublishRequest;
 import com.project.Transflow.publish.dto.PublishResult;
+import com.project.Transflow.publish.service.CreationKrCategoryResolver.SitePathBoard;
 import com.project.Transflow.settings.dto.CreationKrCredentials;
 import com.project.Transflow.settings.service.ApiKeyService;
 import lombok.RequiredArgsConstructor;
@@ -17,6 +21,7 @@ public class CreationKrPublishService {
     private final ApiKeyService apiKeyService;
     private final CreationKrBrowserClient browserClient;
     private final CreationKrProperties properties;
+    private final CreationKrCategoryResolver categoryResolver;
 
     /**
      * 등록된 계정으로 creation.kr 로그인 테스트
@@ -53,6 +58,39 @@ public class CreationKrPublishService {
                 request.getTitle(),
                 request.getHtmlContent()
         );
+    }
+
+    /**
+     * 승인된 리뷰 기준 creation.kr 게시
+     */
+    public PublishResult publishFromReview(Review review) {
+        requireCredentials();
+
+        Document document = review.getDocument();
+        DocumentVersion version = review.getDocumentVersion();
+
+        SitePathBoard mapping = categoryResolver.resolve(document.getCategoryId())
+                .orElse(null);
+        if (mapping == null || !mapping.hasBoardId()) {
+            return PublishResult.failure(
+                    "creation.kr 게시판 매핑을 찾을 수 없습니다. 카테고리에 creationKrSitePath/boardId를 설정하거나 "
+                            + "application.yml board-mappings을 확인해주세요."
+            );
+        }
+
+        String htmlContent = version.getContent();
+        if (htmlContent == null || htmlContent.isBlank()) {
+            return PublishResult.failure("게시할 HTML 본문이 없습니다.");
+        }
+
+        PublishRequest request = PublishRequest.builder()
+                .title(document.getTitle())
+                .htmlContent(htmlContent)
+                .sitePath(mapping.getSitePath())
+                .boardId(mapping.getBoardId())
+                .build();
+
+        return publish(request);
     }
 
     private CreationKrCredentials requireCredentials() {

@@ -166,8 +166,12 @@ public class ReviewController {
 
         try {
             ReviewResponse response = reviewService.publishReview(id, reviewerId);
+            if ("FAILED".equals(response.getPublishStatus())) {
+                return ResponseEntity.badRequest().body(response);
+            }
             return ResponseEntity.ok(response);
         } catch (IllegalArgumentException e) {
+            log.warn("리뷰 게시 거부: {}", e.getMessage());
             return ResponseEntity.badRequest().build();
         }
     }
