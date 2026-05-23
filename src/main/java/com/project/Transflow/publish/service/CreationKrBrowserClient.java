@@ -31,6 +31,38 @@ import java.util.regex.Pattern;
 @RequiredArgsConstructor
 public class CreationKrBrowserClient {
 
+    private static final int MIN_BODY_HTML_LENGTH = 50;
+
+    private static final String FROALA_FILL_SCRIPT =
+            "(el, html) => {"
+                    + " el.focus();"
+                    + " el.innerHTML = html;"
+                    + " el.dispatchEvent(new InputEvent('input', { bubbles: true }));"
+                    + " el.dispatchEvent(new Event('change', { bubbles: true }));"
+                    + " el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));"
+                    + " const wrapper = document.querySelector('#post_body .fr-wrapper');"
+                    + " if (wrapper) { wrapper.classList.remove('show-placeholder'); }"
+                    + " const counter = document.querySelector('.fr-counter')?.textContent?.trim() || '';"
+                    + " const len = el.innerHTML?.length || 0;"
+                    + " const counterOk = counter.length > 0 && !(/:\\\\s*0\\\\s*$/.test(counter));"
+                    + " return counterOk || len > 50;"
+                    + " }";
+
+    private static final String FROALA_EXEC_COMMAND_SCRIPT =
+            "(el, html) => {"
+                    + " el.focus();"
+                    + " el.innerHTML = '';"
+                    + " const ok = document.execCommand('insertHTML', false, html);"
+                    + " el.dispatchEvent(new InputEvent('input', { bubbles: true }));"
+                    + " el.dispatchEvent(new Event('change', { bubbles: true }));"
+                    + " const wrapper = document.querySelector('#post_body .fr-wrapper');"
+                    + " if (wrapper) { wrapper.classList.remove('show-placeholder'); }"
+                    + " const counter = document.querySelector('.fr-counter')?.textContent?.trim() || '';"
+                    + " const len = el.innerHTML?.length || 0;"
+                    + " const counterOk = counter.length > 0 && !(/:\\\\s*0\\\\s*$/.test(counter));"
+                    + " return ok && (counterOk || len > 50);"
+                    + " }";
+
     private final CreationKrProperties properties;
 
     private Playwright playwright;
@@ -106,13 +138,20 @@ public class CreationKrBrowserClient {
             fillTitle(page, title);
             fillContent(page, htmlContent);
             submitPost(page);
+            waitForPostSubmitNavigation(page);
 
-            page.waitForLoadState(LoadState.NETWORKIDLE);
             String resultUrl = page.url();
             log.info("creation.kr 게시 완료 (추정 URL): {}", resultUrl);
 
             if (resultUrl.contains("bmode=write")) {
-                return PublishResult.failure("게시 후에도 글쓰기 페이지에 머물러 있습니다. 폼 selector 확인이 필요합니다.");
+                String pageError = extractPageErrorMessage(page);
+                String message = "게시 후에도 글쓰기 페이지에 머물러 있습니다.";
+                if (pageError != null && !pageError.isBlank()) {
+                    message += " 사이트 메시지: " + pageError;
+                } else {
+                    message += " 본문 동기화 또는 등록 확인이 필요합니다.";
+                }
+                return PublishResult.failure(message);
             }
 
             return PublishResult.success(resultUrl);
@@ -371,76 +410,111 @@ public class CreationKrBrowserClient {
     }
 
     private void fillContent(Page page, String htmlContent) {
-        CreationKrProperties.Selectors selectors = properties.getSelectors();
-
-        if (fillContentInEditableLocator(page, selectors.getWriteBody(), htmlContent)) {
-            return;
+        if (!fillFroalaContent(page, htmlContent)) {
+            throw new CreationKrPublishException("본문 입력(Froala)에 실패했습니다.");
         }
-
-        if (fillContentInIframe(page, htmlContent)) {
-            return;
-        }
-
-        Locator bodyInput = firstVisibleLocator(page, selectors.getWriteBody());
-        if (bodyInput != null) {
-            try {
-                bodyInput.fill(htmlContent);
-                return;
-            } catch (Exception e) {
-                log.debug("textarea fill 실패: {}", e.getMessage());
-            }
-        }
-
-        throw new CreationKrPublishException("본문 입력 필드를 찾을 수 없습니다.");
+        verifyBodyContent(page);
+        log.info("Froala 본문 입력 검증 통과: {}", describeBodyContent(page));
     }
 
-    private boolean fillContentInEditableLocator(Page page, String combinedSelectors, String htmlContent) {
-        List<String> selectors = Arrays.asList(combinedSelectors.split(","));
-        for (String raw : selectors) {
-            String selector = raw.trim();
-            if (selector.isEmpty() || selector.startsWith("text=")) {
-                continue;
-            }
-            try {
-                Locator locator = page.locator(selector);
-                if (locator.count() == 0) {
-                    continue;
-                }
-                Locator target = locator.first();
-                target.waitFor(new Locator.WaitForOptions()
-                        .setState(WaitForSelectorState.VISIBLE)
-                        .setTimeout(properties.getTimeoutMs()));
-                target.evaluate(
-                        "(el, html) => { el.innerHTML = html; el.dispatchEvent(new Event('input', { bubbles: true })); }",
-                        htmlContent
-                );
-                return true;
-            } catch (Exception e) {
-                log.debug("contenteditable locator 입력 실패 ({}): {}", selector, e.getMessage());
-            }
+    private boolean fillFroalaContent(Page page, String htmlContent) {
+        Locator editor = waitForVisibleLocator(page, "#post_body .fr-element.fr-view");
+        if (editor == null) {
+            editor = waitForVisibleLocator(page, properties.getSelectors().getWriteBody());
         }
-        return false;
-    }
+        if (editor == null) {
+            log.warn("Froala editor element를 찾을 수 없습니다.");
+            return false;
+        }
 
-    private boolean fillContentInIframe(Page page, String htmlContent) {
         try {
-            for (com.microsoft.playwright.Frame frame : page.frames()) {
-                if (frame == page.mainFrame()) {
-                    continue;
-                }
-                Locator body = frame.locator("body");
-                if (body.count() > 0 && body.first().isVisible()) {
-                    body.first().evaluate(
-                            "(el, html) => { el.innerHTML = html; }",
-                            htmlContent
-                    );
-                    return true;
-                }
+            Object result = editor.evaluate(FROALA_FILL_SCRIPT, htmlContent);
+            if (Boolean.TRUE.equals(result)) {
+                log.info("Froala 본문 입력 — innerHTML + InputEvent");
+                return true;
+            }
+            log.warn("Froala innerHTML 방식 동기화 실패, execCommand fallback 시도");
+        } catch (Exception e) {
+            log.warn("Froala innerHTML 입력 실패: {}", e.getMessage());
+        }
+
+        try {
+            Object result = editor.evaluate(FROALA_EXEC_COMMAND_SCRIPT, htmlContent);
+            if (Boolean.TRUE.equals(result)) {
+                log.info("Froala 본문 입력 — execCommand insertHTML");
+                return true;
             }
         } catch (Exception e) {
-            log.debug("iframe 본문 입력 실패: {}", e.getMessage());
+            log.warn("Froala execCommand 입력 실패: {}", e.getMessage());
         }
+
         return false;
+    }
+
+    private void verifyBodyContent(Page page) {
+        BodyContentStats stats = readBodyContentStats(page);
+        if (stats.htmlLength() >= MIN_BODY_HTML_LENGTH && stats.counterSynced()) {
+            return;
+        }
+        throw new CreationKrPublishException(
+                "본문이 에디터에 반영되지 않았습니다. (htmlLength="
+                        + stats.htmlLength() + ", counter=" + stats.counterText() + ")"
+        );
+    }
+
+    private String describeBodyContent(Page page) {
+        BodyContentStats stats = readBodyContentStats(page);
+        return "htmlLength=" + stats.htmlLength() + ", counter=" + stats.counterText();
+    }
+
+    private BodyContentStats readBodyContentStats(Page page) {
+        Object raw = page.evaluate(
+                "() => {"
+                        + " const el = document.querySelector('#post_body .fr-element.fr-view')"
+                        + "   || document.querySelector('#post_body .fr-element');"
+                        + " const counter = document.querySelector('.fr-counter')?.textContent?.trim() || '';"
+                        + " const htmlLength = el?.innerHTML?.length || 0;"
+                        + " const counterSynced = counter.length > 0 && !(/:\\\\s*0\\\\s*$/.test(counter));"
+                        + " return { htmlLength, counter, counterSynced };"
+                        + " }"
+        );
+        if (raw instanceof java.util.Map) {
+            @SuppressWarnings("unchecked")
+            java.util.Map<String, Object> map = (java.util.Map<String, Object>) raw;
+            int htmlLength = 0;
+            Object htmlLengthValue = map.get("htmlLength");
+            if (htmlLengthValue instanceof Number) {
+                htmlLength = ((Number) htmlLengthValue).intValue();
+            }
+            String counter = map.get("counter") != null ? map.get("counter").toString() : "";
+            boolean counterSynced = Boolean.TRUE.equals(map.get("counterSynced"));
+            return new BodyContentStats(htmlLength, counter, counterSynced);
+        }
+        return new BodyContentStats(0, "", false);
+    }
+
+    private static final class BodyContentStats {
+        private final int htmlLength;
+        private final String counterText;
+        private final boolean counterSynced;
+
+        private BodyContentStats(int htmlLength, String counterText, boolean counterSynced) {
+            this.htmlLength = htmlLength;
+            this.counterText = counterText;
+            this.counterSynced = counterSynced;
+        }
+
+        private int htmlLength() {
+            return htmlLength;
+        }
+
+        private String counterText() {
+            return counterText;
+        }
+
+        private boolean counterSynced() {
+            return counterSynced;
+        }
     }
 
     private void submitPost(Page page) {
@@ -449,6 +523,67 @@ public class CreationKrBrowserClient {
             throw new CreationKrPublishException("등록 버튼을 찾을 수 없습니다.");
         }
         submitButton.click();
+        waitMillis(800);
+        tryClickConfirmDialog(page);
+    }
+
+    private void tryClickConfirmDialog(Page page) {
+        for (String selector : List.of("text=확인", "button:has-text('확인')", "text=등록")) {
+            Locator confirmButton = firstVisibleLocator(page, selector);
+            if (confirmButton != null) {
+                try {
+                    confirmButton.click();
+                    log.info("게시 확인 dialog 클릭: {}", selector);
+                    waitMillis(800);
+                    return;
+                } catch (Exception e) {
+                    log.debug("확인 dialog 클릭 실패 ({}): {}", selector, e.getMessage());
+                }
+            }
+        }
+    }
+
+    private void waitForPostSubmitNavigation(Page page) {
+        long deadline = System.currentTimeMillis() + Math.min(properties.getTimeoutMs(), 45000L);
+        while (System.currentTimeMillis() < deadline) {
+            try {
+                page.waitForLoadState(LoadState.DOMCONTENTLOADED);
+            } catch (Exception e) {
+                log.debug("DOMCONTENTLOADED 대기 스킵: {}", e.getMessage());
+            }
+            if (!page.url().contains("bmode=write")) {
+                return;
+            }
+            waitMillis(500);
+        }
+        try {
+            page.waitForLoadState(LoadState.NETWORKIDLE);
+        } catch (Exception e) {
+            log.debug("NETWORKIDLE 대기 스킵: {}", e.getMessage());
+        }
+    }
+
+    private String extractPageErrorMessage(Page page) {
+        try {
+            Object message = page.evaluate(
+                    "() => {"
+                            + " const selectors = ["
+                            + "   '.alert-danger', '.alert-warning', '.error-msg', '.validation-error',"
+                            + "   '[class*=\"error\"]', '[class*=\"alert\"]'"
+                            + " ];"
+                            + " for (const sel of selectors) {"
+                            + "   const el = document.querySelector(sel);"
+                            + "   const text = el?.textContent?.trim();"
+                            + "   if (text && text.length > 0 && text.length < 500) { return text; }"
+                            + " }"
+                            + " return null;"
+                            + " }"
+            );
+            return message != null ? message.toString() : null;
+        } catch (Exception e) {
+            log.debug("페이지 에러 메시지 추출 실패: {}", e.getMessage());
+            return null;
+        }
     }
 
     private boolean isLoginRequired(Page page) {

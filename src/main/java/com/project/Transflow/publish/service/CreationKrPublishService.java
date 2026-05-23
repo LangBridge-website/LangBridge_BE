@@ -22,6 +22,7 @@ public class CreationKrPublishService {
     private final CreationKrBrowserClient browserClient;
     private final CreationKrProperties properties;
     private final CreationKrCategoryResolver categoryResolver;
+    private final CreationKrPublishHtmlSanitizer htmlSanitizer;
 
     /**
      * 등록된 계정으로 creation.kr 로그인 테스트
@@ -48,15 +49,23 @@ public class CreationKrPublishService {
             );
         }
 
-        log.info("creation.kr 게시 시작 - sitePath: {}, boardId: {}, title: {}",
-                request.getSitePath(), boardId, request.getTitle());
+        String sanitizedHtml = htmlSanitizer.sanitize(
+                request.getHtmlContent(),
+                request.getOriginalUrl()
+        );
+        if (sanitizedHtml == null || sanitizedHtml.isBlank()) {
+            return PublishResult.failure("게시할 본문 HTML이 비어 있습니다.");
+        }
+
+        log.info("creation.kr 게시 시작 - sitePath: {}, boardId: {}, title: {}, htmlLength: {}",
+                request.getSitePath(), boardId, request.getTitle(), sanitizedHtml.length());
 
         return browserClient.publishPost(
                 credentials,
                 request.getSitePath(),
                 boardId,
                 request.getTitle(),
-                request.getHtmlContent()
+                sanitizedHtml
         );
     }
 
@@ -109,6 +118,7 @@ public class CreationKrPublishService {
                 .htmlContent(htmlContent)
                 .sitePath(sitePath.trim())
                 .boardId(boardId.trim())
+                .originalUrl(document.getOriginalUrl())
                 .build();
 
         return publish(request);

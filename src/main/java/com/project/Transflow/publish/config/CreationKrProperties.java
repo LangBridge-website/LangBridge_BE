@@ -38,7 +38,7 @@ public class CreationKrProperties {
         private String passwordInput = "input[name='passwd'], input[title='비밀번호'], input[type='password'], input[name='password']";
         private String loginSubmit = "button.btn-primary.btn-block, button.btn.btn-primary:has-text('로그인'), text=로그인";
         private String writeTitle = "#post_subject, input[name='subject'], input[name='title'], #subject, #title";
-        private String writeBody = "#post_body .fr-element, #post_body [contenteditable='true'], textarea[name='body'], textarea[name='content'], .fr-element, [contenteditable='true']";
+        private String writeBody = "#post_body .fr-element.fr-view, #post_body .fr-element, #post_body [contenteditable='true'], textarea[name='body'], .fr-element, [contenteditable='true']";
         private String writeSubmit = "button._save_post, button.save_post, text=작성, button[type='submit'], input[type='submit'], .btn_submit, text=등록, text=저장";
         private String loggedInIndicator = "a[href*='logout'], text=로그아웃, .member_info";
     }

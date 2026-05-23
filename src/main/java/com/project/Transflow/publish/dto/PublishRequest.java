@@ -27,4 +27,7 @@ public class PublishRequest {
 
     /** board ID — 없으면 boardMappings에서 sitePath로 조회 */
     private String boardId;
+
+    /** 원문 URL — 이미지/링크 절대경로 변환용 */
+    private String originalUrl;
 }

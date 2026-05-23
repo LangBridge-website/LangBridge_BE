@@ -114,7 +114,7 @@ creation-kr:
     password-input: "input[name='passwd'], input[title='비밀번호']"
     login-submit: "button.btn-primary.btn-block, button.btn.btn-primary:has-text('로그인'), text=로그인"
     write-title: "#post_subject, input[name='subject']"
-    write-body: "#post_body .fr-element, #post_body [contenteditable='true']"
+    write-body: "#post_body .fr-element.fr-view, #post_body .fr-element, #post_body [contenteditable='true']"
     write-submit: "button._save_post, button.save_post, text=작성"
   board-mappings:
     # 대홍수
