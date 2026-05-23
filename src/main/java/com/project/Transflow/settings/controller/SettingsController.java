@@ -3,6 +3,10 @@ package com.project.Transflow.settings.controller;
 import com.project.Transflow.admin.util.AdminAuthUtil;
 import com.project.Transflow.settings.dto.ApiKeyRequest;
 import com.project.Transflow.settings.dto.ApiKeyResponse;
+import com.project.Transflow.settings.dto.CreationKrConnectionTestResponse;
+import com.project.Transflow.settings.dto.CreationKrCredentialRequest;
+import com.project.Transflow.settings.dto.CreationKrCredentialResponse;
+import com.project.Transflow.settings.dto.CreationKrCredentials;
 import com.project.Transflow.settings.service.ApiKeyService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -86,6 +90,92 @@ public class SettingsController {
 
         ApiKeyResponse response = apiKeyService.getDeepLApiKey();
         return ResponseEntity.ok(response);
+    }
+
+    @Operation(
+            summary = "creation.kr 계정 저장/업데이트",
+            description = "creation.kr 게시용 계정(이메일·비밀번호)을 암호화하여 DB에 저장합니다. 권한: 관리자 이상 (roleLevel 1, 2)"
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "계정 저장 성공",
+                    content = @Content(schema = @Schema(implementation = CreationKrCredentialResponse.class))),
+            @ApiResponse(responseCode = "400", description = "잘못된 요청"),
+            @ApiResponse(responseCode = "403", description = "권한 없음 (관리자 권한 필요)"),
+            @ApiResponse(responseCode = "500", description = "서버 오류 (암호화 실패 등)")
+    })
+    @PostMapping("/creation-kr-credentials")
+    public ResponseEntity<CreationKrCredentialResponse> saveCreationKrCredentials(
+            @Parameter(hidden = true) @RequestHeader("Authorization") String authHeader,
+            @Valid @RequestBody CreationKrCredentialRequest request) {
+
+        if (!adminAuthUtil.isAdminOrAbove(authHeader)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+
+        Long userId = adminAuthUtil.getUserIdFromToken(authHeader);
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+
+        try {
+            CreationKrCredentialResponse response = apiKeyService.saveCreationKrCredentials(request, userId);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("creation.kr 계정 저장 실패", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    @Operation(
+            summary = "creation.kr 계정 조회",
+            description = "creation.kr 계정 등록 여부를 조회합니다. 비밀번호는 반환하지 않으며 이메일은 마스킹됩니다. 권한: 관리자 이상 (roleLevel 1, 2)"
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "조회 성공",
+                    content = @Content(schema = @Schema(implementation = CreationKrCredentialResponse.class))),
+            @ApiResponse(responseCode = "403", description = "권한 없음 (관리자 권한 필요)")
+    })
+    @GetMapping("/creation-kr-credentials")
+    public ResponseEntity<CreationKrCredentialResponse> getCreationKrCredentials(
+            @Parameter(hidden = true) @RequestHeader("Authorization") String authHeader) {
+
+        if (!adminAuthUtil.isAdminOrAbove(authHeader)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+
+        CreationKrCredentialResponse response = apiKeyService.getCreationKrCredentials();
+        return ResponseEntity.ok(response);
+    }
+
+    @Operation(
+            summary = "creation.kr 계정 연결 테스트",
+            description = "등록된 creation.kr 계정 정보 존재 여부를 확인합니다. 실제 로그인 테스트는 Playwright 게시 서비스 구현 후 연동됩니다."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "테스트 결과",
+                    content = @Content(schema = @Schema(implementation = CreationKrConnectionTestResponse.class))),
+            @ApiResponse(responseCode = "403", description = "권한 없음 (관리자 권한 필요)")
+    })
+    @PostMapping("/creation-kr-credentials/test")
+    public ResponseEntity<CreationKrConnectionTestResponse> testCreationKrConnection(
+            @Parameter(hidden = true) @RequestHeader("Authorization") String authHeader) {
+
+        if (!adminAuthUtil.isAdminOrAbove(authHeader)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+
+        CreationKrCredentials credentials = apiKeyService.getDecryptedCreationKrCredentials();
+        if (credentials == null) {
+            return ResponseEntity.ok(CreationKrConnectionTestResponse.builder()
+                    .success(false)
+                    .message("creation.kr 계정이 등록되지 않았습니다. 시스템 설정에서 계정을 등록해주세요.")
+                    .build());
+        }
+
+        return ResponseEntity.ok(CreationKrConnectionTestResponse.builder()
+                .success(true)
+                .message("계정 정보가 등록되어 있습니다. (실제 로그인 테스트는 게시 서비스 구현 후 제공됩니다)")
+                .build());
     }
 }
 
