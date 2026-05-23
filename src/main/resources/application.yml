@@ -101,3 +101,14 @@ deepl:
   api:
     url: ${DEEPL_API_URL:https://api-free.deepl.com/v2/translate}
     # key: ${DEEPL_API_KEY:}  # 더 이상 사용하지 않음 (DB에서 관리)
+
+# creation.kr 자동 게시 설정
+creation-kr:
+  enabled: ${CREATION_KR_ENABLED:true}
+  base-url: https://creation.kr
+  timeout-ms: 60000
+  headless: true
+  board-mappings:
+    EvidenceofFlood: b201810315bd97ecb8e054
+    # LIfe: (확인 후 추가)
+    # Ape: (확인 후 추가)
