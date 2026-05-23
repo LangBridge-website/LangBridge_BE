@@ -2,6 +2,7 @@ package com.project.Transflow.review.controller;
 
 import com.project.Transflow.admin.util.AdminAuthUtil;
 import com.project.Transflow.review.dto.CreateReviewRequest;
+import com.project.Transflow.review.dto.PublishReviewRequest;
 import com.project.Transflow.review.dto.ReviewResponse;
 import com.project.Transflow.review.dto.UpdateReviewRequest;
 import com.project.Transflow.review.service.ReviewService;
@@ -152,7 +153,8 @@ public class ReviewController {
     public ResponseEntity<ReviewResponse> publishReview(
             @Parameter(hidden = true) @RequestHeader("Authorization") String authHeader,
             @Parameter(description = "리뷰 ID", required = true, example = "1")
-            @PathVariable Long id) {
+            @PathVariable Long id,
+            @RequestBody(required = false) PublishReviewRequest request) {
 
         // 권한 체크 (관리자 이상)
         if (!adminAuthUtil.isAdminOrAbove(authHeader)) {
@@ -165,7 +167,7 @@ public class ReviewController {
         }
 
         try {
-            ReviewResponse response = reviewService.publishReview(id, reviewerId);
+            ReviewResponse response = reviewService.publishReview(id, reviewerId, request);
             if ("FAILED".equals(response.getPublishStatus())) {
                 return ResponseEntity.badRequest().body(response);
             }

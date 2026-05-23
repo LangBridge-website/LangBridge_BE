@@ -64,18 +64,39 @@ public class CreationKrPublishService {
      * 승인된 리뷰 기준 creation.kr 게시
      */
     public PublishResult publishFromReview(Review review) {
+        return publishFromReview(review, null, null);
+    }
+
+    /**
+     * 승인된 리뷰 기준 creation.kr 게시 (게시판 수동 선택)
+     */
+    public PublishResult publishFromReview(Review review, String sitePathOverride, String boardIdOverride) {
         requireCredentials();
 
         Document document = review.getDocument();
         DocumentVersion version = review.getDocumentVersion();
 
-        SitePathBoard mapping = categoryResolver.resolve(document.getCategoryId())
-                .orElse(null);
-        if (mapping == null || !mapping.hasBoardId()) {
-            return PublishResult.failure(
-                    "creation.kr 게시판 매핑을 찾을 수 없습니다. 카테고리에 creationKrSitePath/boardId를 설정하거나 "
-                            + "application.yml board-mappings을 확인해주세요."
-            );
+        String sitePath = sitePathOverride;
+        String boardId = boardIdOverride;
+
+        if (sitePath == null || sitePath.isBlank() || boardId == null || boardId.isBlank()) {
+            SitePathBoard mapping = categoryResolver.resolve(document.getCategoryId())
+                    .orElse(null);
+            if (mapping == null || !mapping.hasBoardId()) {
+                return PublishResult.failure(
+                        "creation.kr 게시판을 선택해주세요. 문서 카테고리에 매핑이 없습니다."
+                );
+            }
+            if (sitePath == null || sitePath.isBlank()) {
+                sitePath = mapping.getSitePath();
+            }
+            if (boardId == null || boardId.isBlank()) {
+                boardId = mapping.getBoardId();
+            }
+        }
+
+        if (sitePath == null || sitePath.isBlank() || boardId == null || boardId.isBlank()) {
+            return PublishResult.failure("creation.kr 게시판(sitePath, boardId)이 필요합니다.");
         }
 
         String htmlContent = version.getContent();
@@ -86,8 +107,8 @@ public class CreationKrPublishService {
         PublishRequest request = PublishRequest.builder()
                 .title(document.getTitle())
                 .htmlContent(htmlContent)
-                .sitePath(mapping.getSitePath())
-                .boardId(mapping.getBoardId())
+                .sitePath(sitePath.trim())
+                .boardId(boardId.trim())
                 .build();
 
         return publish(request);

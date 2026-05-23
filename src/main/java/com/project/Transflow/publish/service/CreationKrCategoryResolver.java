@@ -23,7 +23,14 @@ public class CreationKrCategoryResolver {
         return categoryRepository.findById(categoryId).flatMap(this::resolveFromCategory);
     }
 
-    private Optional<SitePathBoard> resolveFromCategory(Category category) {
+    public Optional<SitePathBoard> resolveFromCategory(Category category) {
+        if (category == null) {
+            return Optional.empty();
+        }
+        return resolveFromCategoryInternal(category);
+    }
+
+    private Optional<SitePathBoard> resolveFromCategoryInternal(Category category) {
         if (category.getCreationKrSitePath() != null && !category.getCreationKrSitePath().isBlank()) {
             String sitePath = category.getCreationKrSitePath().trim();
             String boardId = category.getCreationKrBoardId();

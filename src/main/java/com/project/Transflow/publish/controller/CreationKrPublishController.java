@@ -1,8 +1,10 @@
 package com.project.Transflow.publish.controller;
 
 import com.project.Transflow.admin.util.AdminAuthUtil;
+import com.project.Transflow.publish.dto.CreationKrBoardListResponse;
 import com.project.Transflow.publish.dto.PublishRequest;
 import com.project.Transflow.publish.dto.PublishResult;
+import com.project.Transflow.publish.service.CreationKrBoardCatalogService;
 import com.project.Transflow.publish.service.CreationKrPublishService;
 import com.project.Transflow.settings.dto.CreationKrConnectionTestResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -13,10 +15,12 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import javax.validation.Valid;
@@ -30,7 +34,24 @@ import javax.validation.Valid;
 public class CreationKrPublishController {
 
     private final CreationKrPublishService publishService;
+    private final CreationKrBoardCatalogService boardCatalogService;
     private final AdminAuthUtil adminAuthUtil;
+
+    @Operation(
+            summary = "creation.kr 게시판 목록",
+            description = "게시 시 선택 가능한 creation.kr 게시판 목록을 반환합니다. categoryId를 넘기면 추천 게시판도 포함됩니다."
+    )
+    @GetMapping("/boards")
+    public ResponseEntity<CreationKrBoardListResponse> listBoards(
+            @Parameter(hidden = true) @RequestHeader("Authorization") String authHeader,
+            @RequestParam(required = false) Long categoryId) {
+
+        if (!adminAuthUtil.isAdminOrAbove(authHeader)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+
+        return ResponseEntity.ok(boardCatalogService.listBoards(categoryId));
+    }
 
     @Operation(
             summary = "creation.kr 로그인 테스트 (Playwright)",
