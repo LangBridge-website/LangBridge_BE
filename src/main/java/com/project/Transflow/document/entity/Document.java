@@ -56,6 +56,9 @@ public class Document {
     @Column(columnDefinition = "TEXT")
     private String completedParagraphs; // 완료된 문단 인덱스 배열 (JSON)
 
+    @Column(length = 500)
+    private String publishedUrl; // creation.kr 게시글 URL
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "created_by", nullable = false)
     private User createdBy; // 생성자 (관리자)

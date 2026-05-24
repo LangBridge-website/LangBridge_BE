@@ -2,6 +2,8 @@ package com.project.Transflow.review.controller;
 
 import com.project.Transflow.admin.util.AdminAuthUtil;
 import com.project.Transflow.review.dto.CreateReviewRequest;
+import com.project.Transflow.review.dto.PublishPreviewResponse;
+import com.project.Transflow.review.dto.PublishReviewRequest;
 import com.project.Transflow.review.dto.ReviewResponse;
 import com.project.Transflow.review.dto.UpdateReviewRequest;
 import com.project.Transflow.review.service.ReviewService;
@@ -138,6 +140,34 @@ public class ReviewController {
     }
 
     @Operation(
+            summary = "creation.kr 게시 미리보기",
+            description = "승인된 리뷰의 게시 전 HTML 미리보기를 반환합니다. 권한: 관리자 이상 (roleLevel 1, 2)"
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "조회 성공",
+                    content = @Content(schema = @Schema(implementation = PublishPreviewResponse.class))),
+            @ApiResponse(responseCode = "403", description = "권한 없음 (관리자 권한 필요)"),
+            @ApiResponse(responseCode = "404", description = "리뷰를 찾을 수 없음")
+    })
+    @GetMapping("/{id}/publish-preview")
+    public ResponseEntity<PublishPreviewResponse> getPublishPreview(
+            @Parameter(hidden = true) @RequestHeader("Authorization") String authHeader,
+            @Parameter(description = "리뷰 ID", required = true, example = "1")
+            @PathVariable Long id) {
+
+        if (!adminAuthUtil.isAdminOrAbove(authHeader)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+
+        try {
+            PublishPreviewResponse response = reviewService.getPublishPreview(id);
+            return ResponseEntity.ok(response);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.notFound().build();
+        }
+    }
+
+    @Operation(
             summary = "리뷰 게시",
             description = "승인된 리뷰를 게시합니다. (creation.kr) 권한: 관리자 이상 (roleLevel 1, 2)"
     )
@@ -152,7 +182,8 @@ public class ReviewController {
     public ResponseEntity<ReviewResponse> publishReview(
             @Parameter(hidden = true) @RequestHeader("Authorization") String authHeader,
             @Parameter(description = "리뷰 ID", required = true, example = "1")
-            @PathVariable Long id) {
+            @PathVariable Long id,
+            @RequestBody(required = false) PublishReviewRequest request) {
 
         // 권한 체크 (관리자 이상)
         if (!adminAuthUtil.isAdminOrAbove(authHeader)) {
@@ -165,9 +196,13 @@ public class ReviewController {
         }
 
         try {
-            ReviewResponse response = reviewService.publishReview(id, reviewerId);
+            ReviewResponse response = reviewService.publishReview(id, reviewerId, request);
+            if ("FAILED".equals(response.getPublishStatus())) {
+                return ResponseEntity.badRequest().body(response);
+            }
             return ResponseEntity.ok(response);
         } catch (IllegalArgumentException e) {
+            log.warn("리뷰 게시 거부: {}", e.getMessage());
             return ResponseEntity.badRequest().build();
         }
     }

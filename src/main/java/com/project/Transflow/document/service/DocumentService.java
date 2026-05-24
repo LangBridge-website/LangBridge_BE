@@ -622,9 +622,24 @@ public class DocumentService {
             builder.latestHandover(handoverBuilder.build());
         }
 
+        enrichPublishInfo(document, builder);
         enrichAdminSession(document, builder);
 
         return builder.build();
+    }
+
+    private void enrichPublishInfo(Document document, DocumentResponse.DocumentResponseBuilder builder) {
+        builder.publishedUrl(document.getPublishedUrl());
+        reviewRepository.findTopByDocument_IdAndStatusOrderByFinalApprovalAtDesc(document.getId(), "APPROVED")
+                .ifPresent(review -> {
+                    builder.approvedReviewId(review.getId());
+                    builder.publishStatus(review.getPublishStatus());
+                    builder.publishError(review.getPublishError());
+                    builder.publishedAt(review.getPublishedAt());
+                    if (review.getPublishedUrl() != null && !review.getPublishedUrl().isBlank()) {
+                        builder.publishedUrl(review.getPublishedUrl());
+                    }
+                });
     }
 
     /**

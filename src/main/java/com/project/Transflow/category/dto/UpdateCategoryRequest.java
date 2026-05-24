@@ -25,5 +25,13 @@ public class UpdateCategoryRequest {
 
     @Schema(description = "카테고리 설명", example = "기술 관련 문서 카테고리 (업데이트)")
     private String description;
+
+    @Schema(description = "creation.kr 게시판 경로", example = "EvidenceofFlood")
+    @Size(max = 100)
+    private String creationKrSitePath;
+
+    @Schema(description = "creation.kr board ID", example = "b201810315bd97ecb8e054")
+    @Size(max = 100)
+    private String creationKrBoardId;
 }
 

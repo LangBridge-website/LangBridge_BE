@@ -101,3 +101,113 @@ deepl:
   api:
     url: ${DEEPL_API_URL:https://api-free.deepl.com/v2/translate}
     # key: ${DEEPL_API_KEY:}  # 더 이상 사용하지 않음 (DB에서 관리)
+
+# creation.kr 자동 게시 설정
+creation-kr:
+  enabled: ${CREATION_KR_ENABLED:true}
+  base-url: https://creation.kr
+  timeout-ms: 90000
+  headless: true
+  seed-categories: ${CREATION_KR_SEED_CATEGORIES:true}
+  selectors:
+    email-input: "input[name='uid'], input[title='이메일']"
+    password-input: "input[name='passwd'], input[title='비밀번호']"
+    login-submit: "button.btn-primary.btn-block, button.btn.btn-primary:has-text('로그인'), text=로그인"
+    write-title: "#post_subject, input[name='subject']"
+    write-body: "#post_body .fr-element.fr-view, #post_body .fr-element, #post_body [contenteditable='true']"
+    write-submit: "button._save_post, button.save_post, text=작성"
+  board-mappings:
+    # 대홍수
+    EvidenceofFlood: b201810315bd97ecb8e054
+    Sediments: b201810315bd97eda23b88
+    Geology: b201810315bd98be7a9fba
+    Catastrophic: b201810315bd97e494da4e
+    Ark: b201810315bd97ec256213
+    IceAge: b201810315bd97ebb4ad2c
+    # 창조설계
+    LIfe: b201811015bd9d7785cb76
+    animals: b201811015bd9d7349d8ef
+    Plants: b201811015bd9d76f6435f
+    Human: b201811015bd9d7935e5b9
+    IntelligentDesign: b201811015bd9d794a8258
+    # 화석
+    Burial: b201811015bdabfe36e9aa
+    LivingFossils: b201811015bdac04acc863
+    Controversy: b201811015bdac0326d3c8
+    Circulation: b201811015bdac079201cc
+    Dinosaur: b201811015bdac02a0bfac
+    # 진화론
+    Influence: b201810315bd98b9d57f99
+    Mutation: b201810315bd98b7260d15
+    NaturalSelection: b201810315bd98bcf6e870
+    Variation: b201810315bd98bcba10cc
+    Textbook: b201810315bd98b141b864
+    HistoryofEvolution: b201810315bd98ba456db6
+    Apes: b201904295cc6a857969d7
+    # 성경
+    archaeology: b201810315bd97f20b9ac4
+    BiblenScience: b201810315bd97f4b56808
+    BiblenHistory: b201810315bd97f5d2917e
+    Genesis: b201810315bd97f6e7d66f
+    # 기독교
+    Science: b201810315bd97822923c3
+    Worldview: b201810315bd978c38ae01
+    Math: b201810315bd978d454f3e
+    Ecosystem: b201810315bd978cb2a6cf
+    # 창조신앙
+    Faith: b201811015bdabf819d49c
+    Education: b201811015bdabf386074b
+    Debate: b201811015bdabf604cbfc
+    Peoples: b201811015bdabf722c816
+    # 천문학
+    Cosmos: b201811015bdabf99b833b
+    Earth: b201811015bdabfb2311e4
+    SolarSystem: b201811015bdabfc92e394
+    # 연대문제
+    YoungEarth: b201810315bd97fd848bbc
+    IsotopeClock: b201810315bd97f9597e4c
+    BiblicalChronology: b201810315bd97fdb98616
+    Dating: b201810315bd97feac26d2
+  board-labels:
+    EvidenceofFlood: 대홍수-증거
+    Sediments: 대홍수-지질학
+    Geology: 대홍수-동일과정설
+    Catastrophic: 대홍수-격변
+    Ark: 대홍수-방주
+    IceAge: 대홍수-빙하기
+    LIfe: 창조설계-생명체
+    animals: 창조설계-동식물
+    Plants: 창조설계-식물
+    Human: 창조설계-사람
+    IntelligentDesign: 창조설계-지적설계
+    Burial: 화석-격변
+    LivingFossils: 화석-살아있는 화석
+    Controversy: 화석-모순점
+    Circulation: 화석-순환논리
+    Dinosaur: 화석-공룡
+    Influence: 진화론-자연발생설
+    Mutation: 진화론-돌연변이
+    NaturalSelection: 진화론-자연선택
+    Variation: 진화론-종분화
+    Textbook: 진화론-교과서
+    HistoryofEvolution: 진화론-역사
+    Apes: 진화론-유인원
+    archaeology: 성경-고고학
+    BiblenScience: 성경-과학
+    BiblenHistory: 성경-역사
+    Genesis: 성경-창세기
+    Science: 기독교-과학
+    Worldview: 기독교-세계관
+    Math: 기독교-확률
+    Ecosystem: 기독교-환경
+    Faith: 창조신앙-중요성
+    Education: 창조신앙-교육
+    Debate: 창조신앙-논쟁
+    Peoples: 창조신앙-인물
+    Cosmos: 천문학-우주
+    Earth: 천문학-지구
+    SolarSystem: 천문학-태양계
+    YoungEarth: 연대문제-젊은지구
+    IsotopeClock: 연대문제-동위원소시계
+    BiblicalChronology: 연대문제-성경
+    Dating: 연대문제-측정방법
