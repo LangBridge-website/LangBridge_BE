@@ -1,9 +1,15 @@
 package com.project.Transflow.document.service;
 
+import com.project.Transflow.document.dto.DashboardDocumentCardDto;
+import com.project.Transflow.document.dto.DashboardSummaryResponse;
 import com.project.Transflow.document.dto.CreateDocumentRequest;
 import com.project.Transflow.document.dto.DocumentResponse;
+import com.project.Transflow.document.dto.SourceCopySummaryDto;
+import com.project.Transflow.document.dto.SourceListEnrichmentRequest;
+import com.project.Transflow.document.dto.SourceListEnrichmentResponse;
 import com.project.Transflow.document.dto.UpdateDocumentRequest;
 import com.project.Transflow.document.entity.Document;
+import com.project.Transflow.document.util.ParagraphCounter;
 import com.project.Transflow.document.entity.DocumentVersion;
 import com.project.Transflow.document.repository.DocumentRepository;
 import com.project.Transflow.document.repository.DocumentVersionRepository;
@@ -14,6 +20,7 @@ import com.project.Transflow.task.repository.TranslationTaskRepository;
 import com.project.Transflow.document.repository.DocumentFavoriteRepository;
 import com.project.Transflow.document.repository.HandoverHistoryRepository;
 import com.project.Transflow.review.repository.ReviewRepository;
+import com.project.Transflow.review.entity.Review;
 import com.project.Transflow.user.entity.User;
 import com.project.Transflow.user.repository.UserRepository;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -23,10 +30,15 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.Comparator;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -162,9 +174,160 @@ public class DocumentService {
 
     @Transactional(readOnly = true)
     public List<DocumentResponse> findByStatus(String status) {
-        return documentRepository.findByStatus(status).stream()
-                .map(this::toResponse)
+        List<Document> docs = documentRepository.findByStatusWithUsers(status);
+        List<Long> ids = docs.stream().map(Document::getId).collect(Collectors.toList());
+        Map<Long, Long> versionCounts = fetchVersionCountsByDocumentIds(ids);
+        return docs.stream()
+                .map(doc -> toListResponse(doc, versionCounts.getOrDefault(doc.getId(), 0L)))
                 .collect(Collectors.toList());
+    }
+
+    /** 내가 작업 중인 복사본 목록 (경량) */
+    @Transactional(readOnly = true)
+    public List<DocumentResponse> findMyWorkingAssignments(Long userId) {
+        if (userId == null) {
+            return List.of();
+        }
+        List<Document> docs = documentRepository.findMyWorkingAssignments(userId);
+        List<Long> ids = docs.stream().map(Document::getId).collect(Collectors.toList());
+        Map<Long, Long> versionCounts = fetchVersionCountsByDocumentIds(ids);
+        return docs.stream()
+                .map(doc -> toListResponse(doc, versionCounts.getOrDefault(doc.getId(), 0L)))
+                .collect(Collectors.toList());
+    }
+
+    /** id 목록으로 경량 문서 조회 (원문 배치 로드용) */
+    @Transactional(readOnly = true)
+    public List<DocumentResponse> findByIdsForList(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        List<Long> distinct = ids.stream().distinct().collect(Collectors.toList());
+        List<Document> docs = documentRepository.findByIdsWithUsers(distinct);
+        Map<Long, Long> versionCounts = fetchVersionCountsByDocumentIds(distinct);
+        return docs.stream()
+                .map(doc -> toListResponse(doc, versionCounts.getOrDefault(doc.getId(), 0L)))
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * 대시보드용 단일 응답 — 상태별 전체 목록·개별 문서 조회 대신 카드에 필요한 필드만 반환.
+     */
+    @Transactional(readOnly = true)
+    public DashboardSummaryResponse getDashboardSummary(Long userId, boolean isAdmin) {
+        DashboardSummaryResponse response = DashboardSummaryResponse.builder().build();
+
+        List<Document> pending = documentRepository.findTopByStatusWithUsers(
+                "PENDING_TRANSLATION", PageRequest.of(0, 3));
+        response.setPendingDocuments(
+                pending.stream().map(this::toDashboardCard).collect(Collectors.toList()));
+
+        List<DashboardDocumentCardDto> working = new ArrayList<>();
+        if (userId != null) {
+            working = documentRepository.findInTranslationForUser(userId, PageRequest.of(0, 3)).stream()
+                    .map(this::toDashboardCard)
+                    .collect(Collectors.toList());
+        }
+        response.setWorkingDocuments(working);
+
+        if (!isAdmin) {
+            return response;
+        }
+
+        response.setReviewPendingCount((int) documentRepository.countByStatus("PENDING_REVIEW"));
+        List<Document> latestReviewPending = documentRepository.findTopByStatusWithUsers(
+                "PENDING_REVIEW", PageRequest.of(0, 1));
+        if (!latestReviewPending.isEmpty()) {
+            Document latest = latestReviewPending.get(0);
+            DashboardDocumentCardDto latestCard = toDashboardCard(latest);
+            reviewRepository.findPendingWithVersionAuthorByDocumentId(latest.getId()).stream()
+                    .findFirst()
+                    .ifPresent(review -> {
+                        if (review.getDocumentVersion() != null
+                                && review.getDocumentVersion().getCreatedBy() != null) {
+                            latestCard.setTranslatorName(review.getDocumentVersion().getCreatedBy().getName());
+                        }
+                    });
+            response.setLatestReviewDocument(latestCard);
+        }
+
+        Map<Long, DashboardDocumentCardDto> approvedByDocId = new HashMap<>();
+        for (Document doc : documentRepository.findByStatusWithUsers("APPROVED")) {
+            approvedByDocId.putIfAbsent(doc.getId(), toDashboardCard(doc));
+        }
+        for (Document doc : documentRepository.findByStatusWithUsers("PUBLISHED")) {
+            approvedByDocId.putIfAbsent(doc.getId(), toDashboardCard(doc));
+        }
+        for (Review review : reviewRepository.findByStatusWithDocumentAndReviewer("APPROVED")) {
+            Document doc = review.getDocument();
+            if (doc == null) {
+                continue;
+            }
+            DashboardDocumentCardDto card = toDashboardCard(doc);
+            card.setApprovedReviewId(review.getId());
+            card.setPublishedUrl(firstNonBlank(review.getPublishedUrl(), doc.getPublishedUrl()));
+            card.setPublishStatus(review.getPublishStatus());
+            card.setPublishError(review.getPublishError());
+            card.setDisplayAt(firstNonNull(review.getFinalApprovalAt(), doc.getUpdatedAt()));
+            approvedByDocId.put(doc.getId(), card);
+        }
+        List<DashboardDocumentCardDto> approved = approvedByDocId.values().stream()
+                .sorted(byDisplayAtDesc())
+                .limit(3)
+                .collect(Collectors.toList());
+        response.setApprovedDocuments(approved);
+
+        List<Review> rejectedReviews = reviewRepository.findByStatusWithDocumentAndReviewer("REJECTED");
+        rejectedReviews.sort(Comparator.comparing(
+                (Review r) -> firstNonNull(r.getReviewedAt(), r.getUpdatedAt()),
+                Comparator.nullsLast(Comparator.naturalOrder())).reversed());
+        List<DashboardDocumentCardDto> rejected = new ArrayList<>();
+        java.util.Set<Long> seenRejected = new HashSet<>();
+        for (Review review : rejectedReviews) {
+            Document doc = review.getDocument();
+            if (doc == null || !seenRejected.add(doc.getId())) {
+                continue;
+            }
+            DashboardDocumentCardDto card = toDashboardCard(doc);
+            card.setDisplayAt(review.getReviewedAt());
+            rejected.add(card);
+            if (rejected.size() >= 3) {
+                break;
+            }
+        }
+        response.setRejectedDocuments(rejected);
+
+        return response;
+    }
+
+    private Comparator<DashboardDocumentCardDto> byDisplayAtDesc() {
+        return Comparator.comparing(
+                (DashboardDocumentCardDto c) -> firstNonNull(c.getDisplayAt(), c.getUpdatedAt()),
+                Comparator.nullsLast(Comparator.naturalOrder())).reversed();
+    }
+
+    private DashboardDocumentCardDto toDashboardCard(Document document) {
+        return DashboardDocumentCardDto.builder()
+                .id(document.getId())
+                .title(document.getTitle())
+                .categoryId(document.getCategoryId())
+                .estimatedLength(document.getEstimatedLength())
+                .updatedAt(document.getUpdatedAt())
+                .displayAt(document.getUpdatedAt())
+                .documentStatus(document.getStatus())
+                .publishedUrl(document.getPublishedUrl())
+                .build();
+    }
+
+    private static <T> T firstNonNull(T a, T b) {
+        return a != null ? a : b;
+    }
+
+    private static String firstNonBlank(String a, String b) {
+        if (a != null && !a.isBlank()) {
+            return a;
+        }
+        return b;
     }
 
     /**
@@ -180,8 +343,11 @@ public class DocumentService {
     /** 원문 ID로 해당 원문의 복사본(다른 사람 작업물) 목록 조회 */
     @Transactional(readOnly = true)
     public List<DocumentResponse> findCopiesBySourceDocumentId(Long sourceDocumentId) {
-        return documentRepository.findBySourceDocument_IdOrderByCreatedAtDesc(sourceDocumentId).stream()
-                .map(this::toResponse)
+        List<Document> copies = documentRepository.findCopiesBySourceIdWithUsers(sourceDocumentId);
+        List<Long> ids = copies.stream().map(Document::getId).collect(Collectors.toList());
+        Map<Long, Long> versionCounts = fetchVersionCountsByDocumentIds(ids);
+        return copies.stream()
+                .map(doc -> toListResponse(doc, versionCounts.getOrDefault(doc.getId(), 0L)))
                 .collect(Collectors.toList());
     }
 
@@ -207,12 +373,154 @@ public class DocumentService {
         return result;
     }
 
+    /**
+     * 목록 페이지용 배치 메타: 복사본 요약, 내 IN_TRANSLATION 원문, 진행률 분모(문단 수).
+     */
+    @Transactional(readOnly = true)
+    public SourceListEnrichmentResponse buildSourceListEnrichment(SourceListEnrichmentRequest request, Long userId) {
+        SourceListEnrichmentResponse response = SourceListEnrichmentResponse.builder().build();
+        if (request == null || request.getSourceDocumentIds() == null || request.getSourceDocumentIds().isEmpty()) {
+            return response;
+        }
+
+        List<Long> sourceIds = request.getSourceDocumentIds().stream().distinct().collect(Collectors.toList());
+
+        Map<Long, SourceCopySummaryDto> summaries = new HashMap<>();
+        for (Long id : sourceIds) {
+            summaries.put(id, SourceCopySummaryDto.builder()
+                    .totalCopyCount(0)
+                    .inTranslationCount(0)
+                    .workerNames(new ArrayList<>())
+                    .copyStatuses(new ArrayList<>())
+                    .build());
+        }
+
+        List<Object[]> copyRows = documentRepository.findCopyLightMetaBySourceIds(sourceIds);
+        Map<Long, LinkedHashSet<String>> workerSets = new HashMap<>();
+        for (Object[] row : copyRows) {
+            Long sourceId = (Long) row[0];
+            String status = row[1] != null ? row[1].toString() : "";
+            String workerName = row[2] != null ? row[2].toString().trim() : "";
+
+            SourceCopySummaryDto summary = summaries.get(sourceId);
+            if (summary == null) {
+                continue;
+            }
+            summary.setTotalCopyCount(summary.getTotalCopyCount() + 1);
+            if ("IN_TRANSLATION".equals(status)) {
+                summary.setInTranslationCount(summary.getInTranslationCount() + 1);
+            }
+            summary.getCopyStatuses().add(status);
+            if (!workerName.isEmpty()) {
+                workerSets.computeIfAbsent(sourceId, k -> new LinkedHashSet<>()).add(workerName);
+            }
+        }
+        for (Map.Entry<Long, SourceCopySummaryDto> entry : summaries.entrySet()) {
+            LinkedHashSet<String> workers = workerSets.get(entry.getKey());
+            if (workers != null) {
+                entry.getValue().setWorkerNames(new ArrayList<>(workers));
+            }
+        }
+        response.setCopySummaries(summaries);
+
+        if (userId != null) {
+            List<Long> myActive = documentRepository.findSourceIdsWhereUserHasInTranslationCopy(sourceIds, userId);
+            response.setMyInTranslationSourceIds(new HashSet<>(myActive));
+        }
+
+        List<Long> progressIds = request.getProgressDocumentIds();
+        if (progressIds != null && !progressIds.isEmpty()) {
+            List<Long> distinctProgress = progressIds.stream().distinct().collect(Collectors.toList());
+            Map<Long, Integer> paragraphCounts = new HashMap<>();
+            List<Object[]> contentRows = documentVersionRepository.findOriginalContentByDocumentIds(distinctProgress);
+            for (Object[] row : contentRows) {
+                Long docId = (Long) row[0];
+                String content = row[1] != null ? row[1].toString() : "";
+                paragraphCounts.put(docId, ParagraphCounter.countParagraphs(content));
+            }
+            response.setOriginalParagraphCounts(paragraphCounts);
+        }
+
+        return response;
+    }
+
     /** 원문만 조회 (복사본 제외). URL 기준 중복 제거 없이 원문을 항상 노출할 때 사용. */
     @Transactional(readOnly = true)
     public List<DocumentResponse> findSourceDocumentsOnly() {
-        return documentRepository.findBySourceDocumentIsNull().stream()
-                .map(this::toResponse)
+        List<Document> documents = documentRepository.findSourceDocumentsWithUsers();
+        if (documents.isEmpty()) {
+            return List.of();
+        }
+        List<Long> ids = documents.stream().map(Document::getId).collect(Collectors.toList());
+        Map<Long, Long> versionCounts = fetchVersionCountsByDocumentIds(ids);
+        return documents.stream()
+                .map(doc -> toListResponse(doc, versionCounts.getOrDefault(doc.getId(), 0L)))
                 .collect(Collectors.toList());
+    }
+
+    private Map<Long, Long> fetchVersionCountsByDocumentIds(List<Long> documentIds) {
+        Map<Long, Long> counts = new HashMap<>();
+        for (Long id : documentIds) {
+            counts.put(id, 0L);
+        }
+        for (Object[] row : documentVersionRepository.countVersionsGroupedByDocumentId(documentIds)) {
+            counts.put((Long) row[0], ((Number) row[1]).longValue());
+        }
+        return counts;
+    }
+
+    /** 목록 API용 경량 응답 (handover/review/admin 세션 조회 생략) */
+    private DocumentResponse toListResponse(Document document, long versionCount) {
+        boolean hasVersions = versionCount > 0;
+
+        java.util.List<Integer> completedParagraphsList = null;
+        if (document.getCompletedParagraphs() != null && !document.getCompletedParagraphs().isEmpty()) {
+            try {
+                completedParagraphsList = objectMapper.readValue(
+                        document.getCompletedParagraphs(),
+                        new TypeReference<java.util.List<Integer>>() {}
+                );
+            } catch (Exception e) {
+                log.warn("문서 completedParagraphs JSON 파싱 실패: documentId={}", document.getId(), e);
+            }
+        }
+
+        Long sourceDocumentId = document.getSourceDocument() != null
+                ? document.getSourceDocument().getId()
+                : null;
+
+        DocumentResponse.DocumentResponseBuilder builder = DocumentResponse.builder()
+                .id(document.getId())
+                .title(document.getTitle())
+                .originalUrl(document.getOriginalUrl())
+                .sourceLang(document.getSourceLang())
+                .targetLang(document.getTargetLang())
+                .categoryId(document.getCategoryId())
+                .status(document.getStatus())
+                .currentVersionId(document.getCurrentVersionId())
+                .estimatedLength(document.getEstimatedLength())
+                .versionCount(versionCount)
+                .hasVersions(hasVersions)
+                .sourceDocumentId(sourceDocumentId)
+                .completedParagraphs(completedParagraphsList)
+                .createdAt(document.getCreatedAt())
+                .updatedAt(document.getUpdatedAt());
+
+        if (document.getCreatedBy() != null) {
+            builder.createdBy(DocumentResponse.CreatorInfo.builder()
+                    .id(document.getCreatedBy().getId())
+                    .email(document.getCreatedBy().getEmail())
+                    .name(document.getCreatedBy().getName())
+                    .build());
+        }
+        if (document.getLastModifiedBy() != null) {
+            builder.lastModifiedBy(DocumentResponse.ModifierInfo.builder()
+                    .id(document.getLastModifiedBy().getId())
+                    .email(document.getLastModifiedBy().getEmail())
+                    .name(document.getLastModifiedBy().getName())
+                    .build());
+        }
+        return builder.build();
     }
 
     @Transactional(readOnly = true)
