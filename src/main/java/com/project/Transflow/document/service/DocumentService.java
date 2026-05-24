@@ -344,10 +344,10 @@ public class DocumentService {
     @Transactional(readOnly = true)
     public List<DocumentResponse> findCopiesBySourceDocumentId(Long sourceDocumentId) {
         List<Document> copies = documentRepository.findCopiesBySourceIdWithUsers(sourceDocumentId);
-        List<Long> ids = copies.stream().map(Document::getId).collect(Collectors.toList());
-        Map<Long, Long> versionCounts = fetchVersionCountsByDocumentIds(ids);
+        // 인계(latestHandover) 정보를 포함해야 "이어받기" 버튼·배지가 정상 표시됨.
+        // 이 메서드는 목록 행 펼침(lazy) 시 1회 호출되므로 toResponse() 사용.
         return copies.stream()
-                .map(doc -> toListResponse(doc, versionCounts.getOrDefault(doc.getId(), 0L)))
+                .map(this::toResponse)
                 .collect(Collectors.toList());
     }
 
