@@ -7,7 +7,13 @@ import com.project.Transflow.document.repository.DocumentVersionRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.project.Transflow.publish.dto.PublishResult;
+import com.project.Transflow.publish.service.CreationKrBoardCatalogService;
+import com.project.Transflow.publish.service.CreationKrPublishHtmlSanitizer;
+import com.project.Transflow.publish.service.CreationKrPublishService;
 import com.project.Transflow.review.dto.CreateReviewRequest;
+import com.project.Transflow.review.dto.PublishPreviewResponse;
+import com.project.Transflow.review.dto.PublishReviewRequest;
 import com.project.Transflow.review.dto.ReviewResponse;
 import com.project.Transflow.review.dto.UpdateReviewRequest;
 import com.project.Transflow.review.entity.Review;
@@ -17,6 +23,9 @@ import com.project.Transflow.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
@@ -35,6 +44,10 @@ public class ReviewService {
     private final DocumentRepository documentRepository;
     private final DocumentVersionRepository documentVersionRepository;
     private final UserRepository userRepository;
+    private final CreationKrPublishService creationKrPublishService;
+    private final CreationKrBoardCatalogService creationKrBoardCatalogService;
+    private final CreationKrPublishHtmlSanitizer htmlSanitizer;
+    private final PlatformTransactionManager transactionManager;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Transactional
@@ -160,29 +173,176 @@ public class ReviewService {
     }
 
     @Transactional
-    public ReviewResponse publishReview(Long reviewId, Long reviewerId) {
+    public ReviewResponse publishReview(Long reviewId, Long adminUserId) {
+        return publishReview(reviewId, adminUserId, null);
+    }
+
+    public ReviewResponse publishReview(Long reviewId, Long adminUserId, PublishReviewRequest request) {
+        PublishBoardSelection boardSelection = preparePublishInNewTransaction(reviewId, request);
+
+        PublishResult result;
+        try {
+            Review review = loadReviewForPublish(reviewId);
+            result = creationKrPublishService.publishFromReview(
+                    review, boardSelection.sitePath(), boardSelection.boardId());
+        } catch (IllegalStateException e) {
+            return finalizePublishInNewTransaction(reviewId, PublishResult.failure(e.getMessage()));
+        } catch (Exception e) {
+            log.error("creation.kr 게시 중 예외 - reviewId: {}", reviewId, e);
+            return finalizePublishInNewTransaction(reviewId, PublishResult.failure(e.getMessage()));
+        }
+
+        return finalizePublishInNewTransaction(reviewId, result);
+    }
+
+    @Transactional(readOnly = true)
+    public PublishPreviewResponse getPublishPreview(Long reviewId) {
         Review review = reviewRepository.findById(reviewId)
                 .orElseThrow(() -> new IllegalArgumentException("리뷰를 찾을 수 없습니다: " + reviewId));
 
-        // 권한 체크
-        if (!review.getReviewer().getId().equals(reviewerId)) {
-            throw new IllegalArgumentException("본인의 리뷰만 게시할 수 있습니다.");
-        }
-
-        if (!"APPROVED".equals(review.getStatus())) {
-            throw new IllegalArgumentException("승인된 리뷰만 게시할 수 있습니다. 현재 상태: " + review.getStatus());
-        }
-
-        review.setPublishedAt(LocalDateTime.now());
-
-        // Document 상태 업데이트
         Document document = review.getDocument();
-        document.setStatus("PUBLISHED");
-        documentRepository.save(document);
+        DocumentVersion version = review.getDocumentVersion();
 
-        Review saved = reviewRepository.save(review);
-        log.info("리뷰 게시: 리뷰 ID {}", reviewId);
-        return toResponse(saved);
+        String htmlContent = version != null ? version.getContent() : null;
+        String sanitizedHtml = htmlSanitizer.sanitize(htmlContent, document.getOriginalUrl());
+
+        String publishStatus = review.getPublishStatus() != null ? review.getPublishStatus() : "NONE";
+        boolean publishable = "APPROVED".equals(review.getStatus())
+                && Boolean.TRUE.equals(review.getIsComplete())
+                && "APPROVED".equals(document.getStatus())
+                && !"PENDING".equals(publishStatus)
+                && !("SUCCESS".equals(publishStatus) && review.getPublishedUrl() != null && !review.getPublishedUrl().isBlank());
+
+        return PublishPreviewResponse.builder()
+                .reviewId(review.getId())
+                .documentId(document.getId())
+                .title(document.getTitle())
+                .sanitizedHtml(sanitizedHtml)
+                .originalUrl(document.getOriginalUrl())
+                .categoryId(document.getCategoryId())
+                .reviewStatus(review.getStatus())
+                .documentStatus(document.getStatus())
+                .publishStatus(publishStatus)
+                .publishedUrl(review.getPublishedUrl())
+                .publishError(review.getPublishError())
+                .isComplete(review.getIsComplete())
+                .publishable(publishable)
+                .build();
+    }
+
+    private PublishBoardSelection preparePublishInNewTransaction(Long reviewId, PublishReviewRequest request) {
+        TransactionTemplate template = newRequiresNewTemplate();
+        return template.execute(status -> {
+            Review review = reviewRepository.findById(reviewId)
+                    .orElseThrow(() -> new IllegalArgumentException("리뷰를 찾을 수 없습니다: " + reviewId));
+
+            if (!"APPROVED".equals(review.getStatus())) {
+                throw new IllegalArgumentException("승인된 리뷰만 게시할 수 있습니다. 현재 상태: " + review.getStatus());
+            }
+
+            if (Boolean.FALSE.equals(review.getIsComplete())) {
+                throw new IllegalArgumentException("완전 번역으로 승인된 문서만 creation.kr에 게시할 수 있습니다.");
+            }
+
+            Document document = review.getDocument();
+            if (!"APPROVED".equals(document.getStatus())) {
+                throw new IllegalArgumentException("문서 상태가 APPROVED가 아닙니다. 현재 상태: " + document.getStatus());
+            }
+
+            String currentPublishStatus = review.getPublishStatus() != null ? review.getPublishStatus() : "NONE";
+            if ("SUCCESS".equals(currentPublishStatus) && review.getPublishedUrl() != null && !review.getPublishedUrl().isBlank()) {
+                throw new IllegalArgumentException("이미 creation.kr에 게시된 문서입니다.");
+            }
+            if ("PENDING".equals(currentPublishStatus)) {
+                throw new IllegalArgumentException("게시가 진행 중입니다. 잠시 후 다시 시도해주세요.");
+            }
+
+            String sitePath = request != null ? request.getSitePath() : null;
+            String boardId = request != null ? request.getBoardId() : null;
+            if (sitePath != null && !sitePath.isBlank() && boardId != null && !boardId.isBlank()) {
+                if (!creationKrBoardCatalogService.isValidBoard(sitePath, boardId)) {
+                    throw new IllegalArgumentException("선택한 creation.kr 게시판이 유효하지 않습니다.");
+                }
+            } else if ((sitePath != null && !sitePath.isBlank()) || (boardId != null && !boardId.isBlank())) {
+                throw new IllegalArgumentException("sitePath와 boardId를 함께 지정해주세요.");
+            }
+
+            review.setPublishStatus("PENDING");
+            review.setPublishError(null);
+            reviewRepository.saveAndFlush(review);
+
+            return new PublishBoardSelection(sitePath, boardId);
+        });
+    }
+
+    private Review loadReviewForPublish(Long reviewId) {
+        TransactionTemplate template = newReadOnlyTemplate();
+        return template.execute(status -> {
+            Review review = reviewRepository.findById(reviewId)
+                    .orElseThrow(() -> new IllegalArgumentException("리뷰를 찾을 수 없습니다: " + reviewId));
+            review.getDocument().getTitle();
+            review.getDocumentVersion().getContent();
+            return review;
+        });
+    }
+
+    private ReviewResponse finalizePublishInNewTransaction(Long reviewId, PublishResult result) {
+        TransactionTemplate template = newRequiresNewTemplate();
+        return template.execute(status -> {
+            Review review = reviewRepository.findById(reviewId)
+                    .orElseThrow(() -> new IllegalArgumentException("리뷰를 찾을 수 없습니다: " + reviewId));
+
+            if (!result.isSuccess()) {
+                review.setPublishStatus("FAILED");
+                review.setPublishError(result.getErrorMessage());
+                Review failed = reviewRepository.save(review);
+                return toResponse(failed);
+            }
+
+            review.setPublishStatus("SUCCESS");
+            review.setPublishedUrl(result.getPublishedUrl());
+            review.setPublishedAt(LocalDateTime.now());
+            review.setPublishError(null);
+
+            Document document = review.getDocument();
+            document.setStatus("PUBLISHED");
+            document.setPublishedUrl(result.getPublishedUrl());
+            documentRepository.save(document);
+
+            Review saved = reviewRepository.save(review);
+            log.info("리뷰 creation.kr 게시 완료: 리뷰 ID {}, URL {}", reviewId, result.getPublishedUrl());
+            return toResponse(saved);
+        });
+    }
+
+    private TransactionTemplate newRequiresNewTemplate() {
+        TransactionTemplate template = new TransactionTemplate(transactionManager);
+        template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        return template;
+    }
+
+    private TransactionTemplate newReadOnlyTemplate() {
+        TransactionTemplate template = new TransactionTemplate(transactionManager);
+        template.setReadOnly(true);
+        return template;
+    }
+
+    private static final class PublishBoardSelection {
+        private final String sitePath;
+        private final String boardId;
+
+        private PublishBoardSelection(String sitePath, String boardId) {
+            this.sitePath = sitePath;
+            this.boardId = boardId;
+        }
+
+        private String sitePath() {
+            return sitePath;
+        }
+
+        private String boardId() {
+            return boardId;
+        }
     }
 
     @Transactional
@@ -280,6 +440,9 @@ public class ReviewService {
                 .reviewedAt(review.getReviewedAt())
                 .finalApprovalAt(review.getFinalApprovalAt())
                 .publishedAt(review.getPublishedAt())
+                .publishedUrl(review.getPublishedUrl())
+                .publishStatus(review.getPublishStatus())
+                .publishError(review.getPublishError())
                 .isComplete(review.getIsComplete())
                 .createdAt(review.getCreatedAt())
                 .updatedAt(review.getUpdatedAt());

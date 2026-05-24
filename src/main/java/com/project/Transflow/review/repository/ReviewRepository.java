@@ -16,6 +16,8 @@ public interface ReviewRepository extends JpaRepository<Review, Long> {
     List<Review> findByDocument_IdAndStatus(Long documentId, String status);
     Optional<Review> findByDocument_IdAndDocumentVersion_Id(Long documentId, Long documentVersionId);
 
+    Optional<Review> findTopByDocument_IdAndStatusOrderByFinalApprovalAtDesc(Long documentId, String status);
+
     void deleteByDocument_Id(Long documentId);
 }
 
