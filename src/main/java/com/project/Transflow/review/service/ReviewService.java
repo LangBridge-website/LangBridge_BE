@@ -9,8 +9,10 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.project.Transflow.publish.dto.PublishResult;
 import com.project.Transflow.publish.service.CreationKrBoardCatalogService;
+import com.project.Transflow.publish.service.CreationKrPublishHtmlSanitizer;
 import com.project.Transflow.publish.service.CreationKrPublishService;
 import com.project.Transflow.review.dto.CreateReviewRequest;
+import com.project.Transflow.review.dto.PublishPreviewResponse;
 import com.project.Transflow.review.dto.PublishReviewRequest;
 import com.project.Transflow.review.dto.ReviewResponse;
 import com.project.Transflow.review.dto.UpdateReviewRequest;
@@ -44,6 +46,7 @@ public class ReviewService {
     private final UserRepository userRepository;
     private final CreationKrPublishService creationKrPublishService;
     private final CreationKrBoardCatalogService creationKrBoardCatalogService;
+    private final CreationKrPublishHtmlSanitizer htmlSanitizer;
     private final PlatformTransactionManager transactionManager;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -190,6 +193,41 @@ public class ReviewService {
         }
 
         return finalizePublishInNewTransaction(reviewId, result);
+    }
+
+    @Transactional(readOnly = true)
+    public PublishPreviewResponse getPublishPreview(Long reviewId) {
+        Review review = reviewRepository.findById(reviewId)
+                .orElseThrow(() -> new IllegalArgumentException("리뷰를 찾을 수 없습니다: " + reviewId));
+
+        Document document = review.getDocument();
+        DocumentVersion version = review.getDocumentVersion();
+
+        String htmlContent = version != null ? version.getContent() : null;
+        String sanitizedHtml = htmlSanitizer.sanitize(htmlContent, document.getOriginalUrl());
+
+        String publishStatus = review.getPublishStatus() != null ? review.getPublishStatus() : "NONE";
+        boolean publishable = "APPROVED".equals(review.getStatus())
+                && Boolean.TRUE.equals(review.getIsComplete())
+                && "APPROVED".equals(document.getStatus())
+                && !"PENDING".equals(publishStatus)
+                && !("SUCCESS".equals(publishStatus) && review.getPublishedUrl() != null && !review.getPublishedUrl().isBlank());
+
+        return PublishPreviewResponse.builder()
+                .reviewId(review.getId())
+                .documentId(document.getId())
+                .title(document.getTitle())
+                .sanitizedHtml(sanitizedHtml)
+                .originalUrl(document.getOriginalUrl())
+                .categoryId(document.getCategoryId())
+                .reviewStatus(review.getStatus())
+                .documentStatus(document.getStatus())
+                .publishStatus(publishStatus)
+                .publishedUrl(review.getPublishedUrl())
+                .publishError(review.getPublishError())
+                .isComplete(review.getIsComplete())
+                .publishable(publishable)
+                .build();
     }
 
     private PublishBoardSelection preparePublishInNewTransaction(Long reviewId, PublishReviewRequest request) {

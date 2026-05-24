@@ -242,6 +242,13 @@ public class CreationKrBrowserClient {
         }
 
         waitForPostLoginNavigation(page, resolvePostLoginTarget(page, targetUrl));
+        waitMillis(1000);
+
+        if (detectLoginFailure(page)) {
+            String loginError = extractLoginErrorMessage(page);
+            log.warn("creation.kr 로그인 실패. URL: {}, message: {}", page.url(), loginError);
+            return false;
+        }
 
         return verifyLoginSuccess(page);
     }
@@ -352,6 +359,9 @@ public class CreationKrBrowserClient {
     }
 
     private boolean verifyLoginSuccess(Page page) {
+        if (detectLoginFailure(page)) {
+            return false;
+        }
         if (isLoggedIn(page)) {
             return true;
         }
@@ -591,12 +601,60 @@ public class CreationKrBrowserClient {
     }
 
     private boolean isLoggedIn(Page page) {
-        Locator indicator = firstVisibleLocator(page, properties.getSelectors().getLoggedInIndicator());
-        if (indicator != null) {
+        if (needsAuthentication(page)) {
+            return false;
+        }
+        Locator logoutLink = firstVisibleLocator(page, "a[href*='logout'], a[href*='Logout']");
+        if (logoutLink != null) {
             return true;
         }
-        String html = page.content();
-        return html.contains("로그아웃") || html.contains("logout");
+        Locator indicator = firstVisibleLocator(page, properties.getSelectors().getLoggedInIndicator());
+        return indicator != null;
+    }
+
+    private boolean detectLoginFailure(Page page) {
+        if (!needsAuthentication(page) && !isLoginPage(page)) {
+            return false;
+        }
+        String loginError = extractLoginErrorMessage(page);
+        if (loginError != null && !loginError.isBlank()) {
+            return true;
+        }
+        return isLoginRequired(page);
+    }
+
+    private String extractLoginErrorMessage(Page page) {
+        try {
+            Object message = page.evaluate(
+                    "() => {"
+                            + " const selectors = ["
+                            + "   '.alert-danger', '.alert-warning', '.error-msg', '.validation-error',"
+                            + "   '.login-error', '.modal-body .text-danger', '[class*=\"error\"]'"
+                            + " ];"
+                            + " for (const sel of selectors) {"
+                            + "   const nodes = document.querySelectorAll(sel);"
+                            + "   for (const el of nodes) {"
+                            + "     const style = window.getComputedStyle(el);"
+                            + "     if (style.display === 'none' || style.visibility === 'hidden') { continue; }"
+                            + "     const text = el.textContent?.trim();"
+                            + "     if (text && text.length > 0 && text.length < 500) { return text; }"
+                            + "   }"
+                            + " }"
+                            + " const bodyText = document.body?.innerText || '';"
+                            + " const patterns = ['비밀번호', '일치하지', '로그인에 실패', '아이디', '확인해'];"
+                            + " for (const p of patterns) {"
+                            + "   if (bodyText.includes(p) && (bodyText.includes('틀') || bodyText.includes('실패') || bodyText.includes('일치'))) {"
+                            + "     return bodyText.split('\\n').find(line => line.includes(p)) || p;"
+                            + "   }"
+                            + " }"
+                            + " return null;"
+                            + " }"
+            );
+            return message != null ? message.toString() : null;
+        } catch (Exception e) {
+            log.debug("로그인 에러 메시지 추출 실패: {}", e.getMessage());
+            return null;
+        }
     }
 
     private Locator waitForVisibleLocator(Page page, String combinedSelectors) {

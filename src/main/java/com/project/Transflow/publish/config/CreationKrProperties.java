@@ -40,7 +40,7 @@ public class CreationKrProperties {
         private String writeTitle = "#post_subject, input[name='subject'], input[name='title'], #subject, #title";
         private String writeBody = "#post_body .fr-element.fr-view, #post_body .fr-element, #post_body [contenteditable='true'], textarea[name='body'], .fr-element, [contenteditable='true']";
         private String writeSubmit = "button._save_post, button.save_post, text=작성, button[type='submit'], input[type='submit'], .btn_submit, text=등록, text=저장";
-        private String loggedInIndicator = "a[href*='logout'], text=로그아웃, .member_info";
+        private String loggedInIndicator = "a[href*='logout'], a[href*='Logout'], .member_info";
     }
 
     public String resolveBoardId(String sitePath) {
