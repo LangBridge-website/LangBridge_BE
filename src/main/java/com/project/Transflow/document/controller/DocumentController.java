@@ -1,12 +1,15 @@
 package com.project.Transflow.document.controller;
 
 import com.project.Transflow.admin.util.AdminAuthUtil;
+import com.project.Transflow.document.dto.DashboardSummaryResponse;
 import com.project.Transflow.document.dto.CompleteTranslationRequest;
 import com.project.Transflow.document.dto.CreateDocumentRequest;
 import com.project.Transflow.document.dto.CreateDocumentVersionRequest;
 import com.project.Transflow.document.dto.DocumentResponse;
 import com.project.Transflow.document.dto.DocumentVersionResponse;
 import com.project.Transflow.document.dto.HandoverRequest;
+import com.project.Transflow.document.dto.SourceListEnrichmentRequest;
+import com.project.Transflow.document.dto.SourceListEnrichmentResponse;
 import com.project.Transflow.document.dto.UpdateDocumentRequest;
 import com.project.Transflow.document.service.DocumentService;
 import com.project.Transflow.document.service.HandoverHistoryService;
@@ -170,6 +173,81 @@ public class DocumentController {
             return ResponseEntity.ok(Collections.emptyMap());
         }
         return ResponseEntity.ok(documentService.countInTranslationCopiesBySourceIds(sourceDocumentIds));
+    }
+
+    @Operation(
+            summary = "원문 목록 배치 메타 조회",
+            description = "복사본 요약·내 IN_TRANSLATION 원문·진행률 문단 수를 한 번에 반환합니다 (목록 N+1 방지)."
+    )
+    @PostMapping("/source-list-enrichment")
+    public ResponseEntity<SourceListEnrichmentResponse> getSourceListEnrichment(
+            @Parameter(hidden = true) @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @RequestBody(required = false) SourceListEnrichmentRequest request) {
+        Long userId = null;
+        if (authHeader != null && !authHeader.isEmpty()) {
+            try {
+                userId = adminAuthUtil.getUserIdFromToken(authHeader);
+            } catch (Exception e) {
+                log.warn("토큰에서 사용자 ID 추출 실패: {}", e.getMessage());
+            }
+        }
+        if (request == null) {
+            request = new SourceListEnrichmentRequest();
+        }
+        return ResponseEntity.ok(documentService.buildSourceListEnrichment(request, userId));
+    }
+
+    @Operation(
+            summary = "대시보드 요약 조회",
+            description = "대시보드 카드에 필요한 데이터를 한 번에 반환합니다 (다중 상태 목록·개별 문서 조회 대체)."
+    )
+    @GetMapping("/dashboard-summary")
+    public ResponseEntity<DashboardSummaryResponse> getDashboardSummary(
+            @Parameter(hidden = true) @RequestHeader(value = "Authorization", required = false) String authHeader) {
+        Long userId = null;
+        if (authHeader != null && !authHeader.isEmpty()) {
+            try {
+                userId = adminAuthUtil.getUserIdFromToken(authHeader);
+            } catch (Exception e) {
+                log.warn("토큰에서 사용자 ID 추출 실패: {}", e.getMessage());
+            }
+        }
+        boolean isAdmin = adminAuthUtil.isAdminOrAbove(authHeader);
+        return ResponseEntity.ok(documentService.getDashboardSummary(userId, isAdmin));
+    }
+
+    @Operation(
+            summary = "내가 작업 중인 복사본 목록",
+            description = "현재 사용자의 번역 중·검토·승인·게시 복사본을 경량 목록으로 반환합니다."
+    )
+    @GetMapping("/my-working-assignments")
+    public ResponseEntity<List<DocumentResponse>> getMyWorkingAssignments(
+            @Parameter(hidden = true) @RequestHeader(value = "Authorization", required = false) String authHeader) {
+        Long userId = null;
+        if (authHeader != null && !authHeader.isEmpty()) {
+            try {
+                userId = adminAuthUtil.getUserIdFromToken(authHeader);
+            } catch (Exception e) {
+                log.warn("토큰에서 사용자 ID 추출 실패: {}", e.getMessage());
+            }
+        }
+        if (userId == null) {
+            return ResponseEntity.ok(Collections.emptyList());
+        }
+        return ResponseEntity.ok(documentService.findMyWorkingAssignments(userId));
+    }
+
+    @Operation(
+            summary = "문서 id 목록으로 경량 조회",
+            description = "원문 배치 로드용. handover/review N+1 없이 목록 필드만 반환합니다."
+    )
+    @PostMapping("/list-by-ids")
+    public ResponseEntity<List<DocumentResponse>> getDocumentsByIds(
+            @RequestBody(required = false) List<Long> documentIds) {
+        if (documentIds == null || documentIds.isEmpty()) {
+            return ResponseEntity.ok(Collections.emptyList());
+        }
+        return ResponseEntity.ok(documentService.findByIdsForList(documentIds));
     }
 
     @Operation(

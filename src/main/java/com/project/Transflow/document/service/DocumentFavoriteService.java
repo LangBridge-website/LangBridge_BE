@@ -60,11 +60,10 @@ public class DocumentFavoriteService {
     @Transactional(readOnly = true)
     public List<DocumentResponse> getFavoriteDocuments(Long userId) {
         List<DocumentFavorite> favorites = favoriteRepository.findByUserId(userId);
-        return favorites.stream()
-                .map(favorite -> documentService.findById(favorite.getDocument().getId())
-                        .orElse(null))
-                .filter(doc -> doc != null)
+        List<Long> docIds = favorites.stream()
+                .map(f -> f.getDocument().getId())
                 .collect(Collectors.toList());
+        return documentService.findByIdsForList(docIds);
     }
 
     @Transactional(readOnly = true)

@@ -26,5 +26,13 @@ public interface DocumentVersionRepository extends JpaRepository<DocumentVersion
     @Query("SELECT MAX(dv.versionNumber) FROM DocumentVersion dv "
             + "WHERE dv.document.id = :sourceId OR dv.document.sourceDocument.id = :sourceId")
     Optional<Integer> findMaxVersionNumberInSourceFamily(@Param("sourceId") Long sourceId);
+
+    /** 진행률용: ORIGINAL 버전 HTML만 배치 조회 */
+    @Query("SELECT dv.document.id, dv.content FROM DocumentVersion dv WHERE dv.document.id IN :documentIds AND dv.versionType = 'ORIGINAL'")
+    List<Object[]> findOriginalContentByDocumentIds(@Param("documentIds") List<Long> documentIds);
+
+    /** 문서 ID별 버전 개수 배치 조회 (목록용) */
+    @Query("SELECT dv.document.id, COUNT(dv) FROM DocumentVersion dv WHERE dv.document.id IN :documentIds GROUP BY dv.document.id")
+    List<Object[]> countVersionsGroupedByDocumentId(@Param("documentIds") List<Long> documentIds);
 }
 
