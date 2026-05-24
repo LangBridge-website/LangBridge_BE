@@ -29,6 +29,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -98,15 +99,64 @@ public class ReviewService {
         return toResponse(saved);
     }
 
+    /**
+     * 번역 완료 등으로 문서가 검토 대기 상태가 될 때 PENDING 리뷰를 자동 생성합니다.
+     * 동일 문서·버전에 리뷰가 이미 있으면 기존 리뷰를 반환합니다.
+     */
+    @Transactional
+    public Optional<ReviewResponse> ensurePendingReviewForDocument(Long documentId, Long documentVersionId) {
+        Optional<Review> existingReview = reviewRepository
+                .findByDocument_IdAndDocumentVersion_Id(documentId, documentVersionId);
+        if (existingReview.isPresent()) {
+            return Optional.of(toResponse(existingReview.get()));
+        }
+
+        Document document = documentRepository.findById(documentId)
+                .orElseThrow(() -> new IllegalArgumentException("문서를 찾을 수 없습니다: " + documentId));
+
+        DocumentVersion documentVersion = documentVersionRepository.findById(documentVersionId)
+                .orElseThrow(() -> new IllegalArgumentException("문서 버전을 찾을 수 없습니다: " + documentVersionId));
+
+        if (!documentVersion.getDocument().getId().equals(documentId)) {
+            throw new IllegalArgumentException("문서 버전이 해당 문서에 속하지 않습니다.");
+        }
+
+        Review review = Review.builder()
+                .document(document)
+                .documentVersion(documentVersion)
+                .reviewer(null)
+                .status("PENDING")
+                .isComplete(true)
+                .build();
+
+        Review saved = reviewRepository.save(review);
+        log.info("검토 대기 리뷰 자동 생성: 문서 ID {}, 버전 ID {}", documentId, documentVersionId);
+        return Optional.of(toResponse(saved));
+    }
+
+    /**
+     * 문서의 최신 MANUAL_TRANSLATION 버전 기준으로 PENDING 리뷰를 자동 생성합니다.
+     */
+    @Transactional
+    public Optional<ReviewResponse> ensurePendingReviewForLatestManualTranslation(Long documentId) {
+        Optional<DocumentVersion> latestManualVersion = documentVersionRepository.findByDocument_Id(documentId).stream()
+                .filter(version -> "MANUAL_TRANSLATION".equals(version.getVersionType()))
+                .max(Comparator.comparing(DocumentVersion::getVersionNumber));
+
+        if (latestManualVersion.isEmpty()) {
+            log.warn("MANUAL_TRANSLATION 버전이 없어 리뷰 자동 생성을 건너뜁니다. 문서 ID {}", documentId);
+            return Optional.empty();
+        }
+
+        return ensurePendingReviewForDocument(documentId, latestManualVersion.get().getId());
+    }
+
     @Transactional
     public ReviewResponse approveReview(Long reviewId, Long reviewerId) {
         Review review = reviewRepository.findById(reviewId)
                 .orElseThrow(() -> new IllegalArgumentException("리뷰를 찾을 수 없습니다: " + reviewId));
 
-        // 권한 체크: 본인의 리뷰인지 확인
-        if (!review.getReviewer().getId().equals(reviewerId)) {
-            throw new IllegalArgumentException("본인의 리뷰만 승인할 수 있습니다.");
-        }
+        assignReviewerIfNeeded(review, reviewerId);
 
         if (!"PENDING".equals(review.getStatus())) {
             throw new IllegalArgumentException("승인할 수 없는 상태입니다. 현재 상태: " + review.getStatus());
@@ -150,10 +200,7 @@ public class ReviewService {
         Review review = reviewRepository.findById(reviewId)
                 .orElseThrow(() -> new IllegalArgumentException("리뷰를 찾을 수 없습니다: " + reviewId));
 
-        // 권한 체크
-        if (!review.getReviewer().getId().equals(reviewerId)) {
-            throw new IllegalArgumentException("본인의 리뷰만 반려할 수 있습니다.");
-        }
+        assignReviewerIfNeeded(review, reviewerId);
 
         if (!"PENDING".equals(review.getStatus())) {
             throw new IllegalArgumentException("반려할 수 없는 상태입니다. 현재 상태: " + review.getStatus());
@@ -350,10 +397,7 @@ public class ReviewService {
         Review review = reviewRepository.findById(reviewId)
                 .orElseThrow(() -> new IllegalArgumentException("리뷰를 찾을 수 없습니다: " + reviewId));
 
-        // 권한 체크
-        if (!review.getReviewer().getId().equals(reviewerId)) {
-            throw new IllegalArgumentException("본인의 리뷰만 수정할 수 있습니다.");
-        }
+        assignReviewerIfNeeded(review, reviewerId);
 
         if (!"PENDING".equals(review.getStatus())) {
             throw new IllegalArgumentException("수정할 수 없는 상태입니다. 현재 상태: " + review.getStatus());
@@ -418,6 +462,23 @@ public class ReviewService {
     public Optional<ReviewResponse> findById(Long id) {
         return reviewRepository.findById(id)
                 .map(this::toResponse);
+    }
+
+    /**
+     * 자동 생성된 리뷰(reviewer 미할당)는 승인/반려/수정 시점에 현재 관리자를 reviewer로 할당합니다.
+     * 이미 할당된 리뷰는 본인만 처리할 수 있습니다.
+     */
+    private void assignReviewerIfNeeded(Review review, Long adminUserId) {
+        User reviewer = review.getReviewer();
+        if (reviewer == null) {
+            User admin = userRepository.findById(adminUserId)
+                    .orElseThrow(() -> new IllegalArgumentException("리뷰어를 찾을 수 없습니다: " + adminUserId));
+            review.setReviewer(admin);
+            return;
+        }
+        if (!reviewer.getId().equals(adminUserId)) {
+            throw new IllegalArgumentException("본인의 리뷰만 처리할 수 있습니다.");
+        }
     }
 
     private ReviewResponse toResponse(Review review) {
