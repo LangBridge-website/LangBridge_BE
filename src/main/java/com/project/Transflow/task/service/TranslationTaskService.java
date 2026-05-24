@@ -2,6 +2,7 @@ package com.project.Transflow.task.service;
 
 import com.project.Transflow.document.entity.Document;
 import com.project.Transflow.document.repository.DocumentRepository;
+import com.project.Transflow.review.service.ReviewService;
 import com.project.Transflow.task.dto.CreateTranslationTaskRequest;
 import com.project.Transflow.task.dto.TranslationTaskResponse;
 import com.project.Transflow.task.entity.TranslationTask;
@@ -26,6 +27,7 @@ public class TranslationTaskService {
     private final TranslationTaskRepository translationTaskRepository;
     private final DocumentRepository documentRepository;
     private final UserRepository userRepository;
+    private final ReviewService reviewService;
 
     @Transactional
     public TranslationTaskResponse createTask(CreateTranslationTaskRequest request, Long currentUserId, Long assignedById) {
@@ -118,6 +120,8 @@ public class TranslationTaskService {
         // Document 상태 업데이트
         task.getDocument().setStatus("PENDING_REVIEW");
         documentRepository.save(task.getDocument());
+
+        reviewService.ensurePendingReviewForLatestManualTranslation(task.getDocument().getId());
 
         TranslationTask saved = translationTaskRepository.save(task);
         log.info("번역 작업 제출: 작업 ID {}", taskId);
