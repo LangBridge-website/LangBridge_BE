@@ -5,12 +5,14 @@ import com.project.Transflow.document.dto.CompleteTranslationRequest;
 import com.project.Transflow.document.dto.CreateDocumentRequest;
 import com.project.Transflow.document.dto.CreateDocumentVersionRequest;
 import com.project.Transflow.document.dto.DocumentResponse;
+import com.project.Transflow.document.dto.DocumentVersionResponse;
 import com.project.Transflow.document.dto.HandoverRequest;
 import com.project.Transflow.document.dto.UpdateDocumentRequest;
 import com.project.Transflow.document.service.DocumentService;
 import com.project.Transflow.document.service.HandoverHistoryService;
 import com.project.Transflow.document.service.DocumentVersionService;
 import com.project.Transflow.notification.service.TranslationNotificationMailService;
+import com.project.Transflow.review.service.ReviewService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -47,6 +49,7 @@ public class DocumentController {
     private final AdminAuthUtil adminAuthUtil;
     private final UserRepository userRepository;
     private final TranslationNotificationMailService translationNotificationMailService;
+    private final ReviewService reviewService;
 
     @Operation(
             summary = "문서 생성",
@@ -385,12 +388,14 @@ public class DocumentController {
         versionRequest.setVersionType("MANUAL_TRANSLATION");
         versionRequest.setContent(request.getContent());
         versionRequest.setIsFinal(false);
-        versionService.createVersion(documentId, versionRequest, userId);
+        DocumentVersionResponse createdVersion = versionService.createVersion(documentId, versionRequest, userId);
 
         UpdateDocumentRequest updateRequest = new UpdateDocumentRequest();
         updateRequest.setStatus("PENDING_REVIEW");
         updateRequest.setCompletedParagraphs(request.getCompletedParagraphs());
         documentService.updateDocument(documentId, updateRequest, userId);
+
+        reviewService.ensurePendingReviewForDocument(documentId, createdVersion.getId());
 
         documentService.clearAdminTranslationSessionIfEditingCopy(documentId);
 
