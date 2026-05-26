@@ -177,8 +177,14 @@ public class DocumentService {
         List<Document> docs = documentRepository.findByStatusWithUsers(status);
         List<Long> ids = docs.stream().map(Document::getId).collect(Collectors.toList());
         Map<Long, Long> versionCounts = fetchVersionCountsByDocumentIds(ids);
+        Map<Long, Review> approvedReviewsByDocumentId = needsPublishInfoEnrichment(status)
+                ? fetchLatestApprovedReviewsByDocumentIds(ids)
+                : Map.of();
         return docs.stream()
-                .map(doc -> toListResponse(doc, versionCounts.getOrDefault(doc.getId(), 0L)))
+                .map(doc -> toListResponse(
+                        doc,
+                        versionCounts.getOrDefault(doc.getId(), 0L),
+                        approvedReviewsByDocumentId.get(doc.getId())))
                 .collect(Collectors.toList());
     }
 
@@ -469,8 +475,51 @@ public class DocumentService {
         return counts;
     }
 
+    private boolean needsPublishInfoEnrichment(String status) {
+        return "APPROVED".equals(status) || "PUBLISHED".equals(status);
+    }
+
+    /** 문서 ID별 최신 승인(APPROVED) Review — 목록 API publish enrich용 */
+    private Map<Long, Review> fetchLatestApprovedReviewsByDocumentIds(List<Long> documentIds) {
+        if (documentIds == null || documentIds.isEmpty()) {
+            return Map.of();
+        }
+        List<Review> reviews = reviewRepository.findByDocumentIdsAndStatus(documentIds, "APPROVED");
+        Map<Long, Review> latestByDocumentId = new HashMap<>();
+        for (Review review : reviews) {
+            if (review.getDocument() == null) {
+                continue;
+            }
+            Long documentId = review.getDocument().getId();
+            Review existing = latestByDocumentId.get(documentId);
+            if (existing == null || isLaterApprovedReview(review, existing)) {
+                latestByDocumentId.put(documentId, review);
+            }
+        }
+        return latestByDocumentId;
+    }
+
+    private boolean isLaterApprovedReview(Review candidate, Review current) {
+        LocalDateTime candidateAt = candidate.getFinalApprovalAt();
+        LocalDateTime currentAt = current.getFinalApprovalAt();
+        if (candidateAt != null && currentAt != null) {
+            return candidateAt.isAfter(currentAt);
+        }
+        if (candidateAt != null) {
+            return true;
+        }
+        if (currentAt != null) {
+            return false;
+        }
+        return candidate.getId() > current.getId();
+    }
+
     /** 목록 API용 경량 응답 (handover/review/admin 세션 조회 생략) */
     private DocumentResponse toListResponse(Document document, long versionCount) {
+        return toListResponse(document, versionCount, null);
+    }
+
+    private DocumentResponse toListResponse(Document document, long versionCount, Review approvedReview) {
         boolean hasVersions = versionCount > 0;
 
         java.util.List<Integer> completedParagraphsList = null;
@@ -520,6 +569,7 @@ public class DocumentService {
                     .name(document.getLastModifiedBy().getName())
                     .build());
         }
+        applyPublishInfo(document, builder, approvedReview);
         return builder.build();
     }
 
@@ -937,17 +987,27 @@ public class DocumentService {
     }
 
     private void enrichPublishInfo(Document document, DocumentResponse.DocumentResponseBuilder builder) {
+        Review approvedReview = reviewRepository
+                .findTopByDocument_IdAndStatusOrderByFinalApprovalAtDesc(document.getId(), "APPROVED")
+                .orElse(null);
+        applyPublishInfo(document, builder, approvedReview);
+    }
+
+    private void applyPublishInfo(
+            Document document,
+            DocumentResponse.DocumentResponseBuilder builder,
+            Review approvedReview) {
         builder.publishedUrl(document.getPublishedUrl());
-        reviewRepository.findTopByDocument_IdAndStatusOrderByFinalApprovalAtDesc(document.getId(), "APPROVED")
-                .ifPresent(review -> {
-                    builder.approvedReviewId(review.getId());
-                    builder.publishStatus(review.getPublishStatus());
-                    builder.publishError(review.getPublishError());
-                    builder.publishedAt(review.getPublishedAt());
-                    if (review.getPublishedUrl() != null && !review.getPublishedUrl().isBlank()) {
-                        builder.publishedUrl(review.getPublishedUrl());
-                    }
-                });
+        if (approvedReview == null) {
+            return;
+        }
+        builder.approvedReviewId(approvedReview.getId());
+        builder.publishStatus(approvedReview.getPublishStatus());
+        builder.publishError(approvedReview.getPublishError());
+        builder.publishedAt(approvedReview.getPublishedAt());
+        if (approvedReview.getPublishedUrl() != null && !approvedReview.getPublishedUrl().isBlank()) {
+            builder.publishedUrl(approvedReview.getPublishedUrl());
+        }
     }
 
     /**
