@@ -32,8 +32,8 @@ public class Review {
     private DocumentVersion documentVersion; // 검토 대상 버전
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "reviewer_id")
-    private User reviewer; // 리뷰어 (관리자). 번역 완료 시 자동 생성된 리뷰는 승인/반려 시점에 할당
+    @JoinColumn(name = "reviewer_id", nullable = true)
+    private User reviewer; // 리뷰어 (관리자). 번역 완료 자동 생성 PENDING 리뷰는 null, 승인/반려 시 할당
 
     @Column(nullable = false, length = 20)
     @Builder.Default

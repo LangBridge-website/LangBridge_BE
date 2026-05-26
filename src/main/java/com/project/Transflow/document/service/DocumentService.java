@@ -2,8 +2,11 @@ package com.project.Transflow.document.service;
 
 import com.project.Transflow.document.dto.DashboardDocumentCardDto;
 import com.project.Transflow.document.dto.DashboardSummaryResponse;
+import com.project.Transflow.document.dto.CompleteTranslationRequest;
 import com.project.Transflow.document.dto.CreateDocumentRequest;
+import com.project.Transflow.document.dto.CreateDocumentVersionRequest;
 import com.project.Transflow.document.dto.DocumentResponse;
+import com.project.Transflow.document.dto.DocumentVersionResponse;
 import com.project.Transflow.document.dto.SourceCopySummaryDto;
 import com.project.Transflow.document.dto.SourceListEnrichmentRequest;
 import com.project.Transflow.document.dto.SourceListEnrichmentResponse;
@@ -21,6 +24,7 @@ import com.project.Transflow.document.repository.DocumentFavoriteRepository;
 import com.project.Transflow.document.repository.HandoverHistoryRepository;
 import com.project.Transflow.review.repository.ReviewRepository;
 import com.project.Transflow.review.entity.Review;
+import com.project.Transflow.review.service.ReviewService;
 import com.project.Transflow.user.entity.User;
 import com.project.Transflow.user.repository.UserRepository;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -60,6 +64,8 @@ public class DocumentService {
     private final DocumentFavoriteRepository documentFavoriteRepository;
     private final HandoverHistoryRepository handoverHistoryRepository;
     private final ReviewRepository reviewRepository;
+    private final ReviewService reviewService;
+    private final DocumentVersionService documentVersionService;
     private final ObjectMapper objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
 
     @Transactional
@@ -152,6 +158,25 @@ public class DocumentService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * 인계 요청 문서 목록. URL 중복 제거 없이 handover_history가 있는 문서만 반환합니다.
+     */
+    @Transactional(readOnly = true)
+    public List<DocumentResponse> findDocumentsWithHandover() {
+        List<Long> documentIds = handoverHistoryService.findDocumentIdsWithHandoverNewestFirst();
+        if (documentIds.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, Document> documentsById = documentRepository.findByIdsWithUsers(documentIds).stream()
+                .collect(Collectors.toMap(Document::getId, doc -> doc, (a, b) -> a));
+        return documentIds.stream()
+                .map(documentsById::get)
+                .filter(doc -> doc != null)
+                .filter(doc -> !"PENDING_TRANSLATION".equals(doc.getStatus()))
+                .map(this::toResponse)
+                .collect(Collectors.toList());
+    }
+
     @Transactional(readOnly = true)
     public List<DocumentResponse> findAllExcludingPendingTranslation() {
         // PENDING_TRANSLATION 제외는 더 이상 필요 없지만, 호환성을 위해 유지
@@ -180,11 +205,13 @@ public class DocumentService {
         Map<Long, Review> approvedReviewsByDocumentId = needsPublishInfoEnrichment(status)
                 ? fetchLatestApprovedReviewsByDocumentIds(ids)
                 : Map.of();
+        Map<Long, Map<Long, Integer>> copyFacingCache = new HashMap<>();
         return docs.stream()
                 .map(doc -> toListResponse(
                         doc,
                         versionCounts.getOrDefault(doc.getId(), 0L),
-                        approvedReviewsByDocumentId.get(doc.getId())))
+                        approvedReviewsByDocumentId.get(doc.getId()),
+                        resolveUserFacingVersionNumber(doc, copyFacingCache)))
                 .collect(Collectors.toList());
     }
 
@@ -350,10 +377,9 @@ public class DocumentService {
     @Transactional(readOnly = true)
     public List<DocumentResponse> findCopiesBySourceDocumentId(Long sourceDocumentId) {
         List<Document> copies = documentRepository.findCopiesBySourceIdWithUsers(sourceDocumentId);
-        // 인계(latestHandover) 정보를 포함해야 "이어받기" 버튼·배지가 정상 표시됨.
-        // 이 메서드는 목록 행 펼침(lazy) 시 1회 호출되므로 toResponse() 사용.
+        Map<Long, Integer> userFacingByCopyId = buildCopyUserFacingVersionMap(sourceDocumentId);
         return copies.stream()
-                .map(this::toResponse)
+                .map(copy -> toResponse(copy, userFacingByCopyId.get(copy.getId())))
                 .collect(Collectors.toList());
     }
 
@@ -516,10 +542,23 @@ public class DocumentService {
 
     /** 목록 API용 경량 응답 (handover/review/admin 세션 조회 생략) */
     private DocumentResponse toListResponse(Document document, long versionCount) {
-        return toListResponse(document, versionCount, null);
+        return toListResponse(document, versionCount, null, null);
     }
 
     private DocumentResponse toListResponse(Document document, long versionCount, Review approvedReview) {
+        Map<Long, Map<Long, Integer>> cache = new HashMap<>();
+        return toListResponse(
+                document,
+                versionCount,
+                approvedReview,
+                resolveUserFacingVersionNumber(document, cache));
+    }
+
+    private DocumentResponse toListResponse(
+            Document document,
+            long versionCount,
+            Review approvedReview,
+            Integer userFacingVersionOverride) {
         boolean hasVersions = versionCount > 0;
 
         java.util.List<Integer> completedParagraphsList = null;
@@ -569,8 +608,49 @@ public class DocumentService {
                     .name(document.getLastModifiedBy().getName())
                     .build());
         }
+        applyVersionInfo(document, builder, userFacingVersionOverride);
         applyPublishInfo(document, builder, approvedReview);
         return builder.build();
+    }
+
+    private Integer resolveUserFacingVersionNumber(
+            Document document,
+            Map<Long, Map<Long, Integer>> copyFacingCache) {
+        if (document.getSourceDocument() == null) {
+            return 1;
+        }
+        Long sourceId = document.getSourceDocument().getId();
+        Map<Long, Integer> facingByCopyId = copyFacingCache != null
+                ? copyFacingCache.computeIfAbsent(sourceId, this::buildCopyUserFacingVersionMap)
+                : buildCopyUserFacingVersionMap(sourceId);
+        return facingByCopyId.get(document.getId());
+    }
+
+    private void applyVersionInfo(
+            Document document,
+            DocumentResponse.DocumentResponseBuilder builder,
+            Integer userFacingVersionOverride) {
+        Integer currentVersionNumber = null;
+        Boolean currentVersionIsFinal = null;
+        Integer userFacingVersionNumber = userFacingVersionOverride;
+
+        if (document.getCurrentVersionId() != null) {
+            Optional<DocumentVersion> currentVersionOpt =
+                    documentVersionRepository.findById(document.getCurrentVersionId());
+            if (currentVersionOpt.isPresent()) {
+                DocumentVersion cv = currentVersionOpt.get();
+                currentVersionNumber = cv.getVersionNumber();
+                currentVersionIsFinal = Boolean.TRUE.equals(cv.getIsFinal());
+            }
+        }
+        if (userFacingVersionNumber == null) {
+            Map<Long, Map<Long, Integer>> cache = new HashMap<>();
+            userFacingVersionNumber = resolveUserFacingVersionNumber(document, cache);
+        }
+
+        builder.currentVersionNumber(currentVersionNumber);
+        builder.currentVersionIsFinal(currentVersionIsFinal);
+        builder.userFacingVersionNumber(userFacingVersionNumber);
     }
 
     @Transactional(readOnly = true)
@@ -808,6 +888,19 @@ public class DocumentService {
     }
 
     /**
+     * 목록 UI용: 원문=v1, 첫 복사본=v2, 둘째 복사본=v3 … (생성 순).
+     * DB version_number(임시저장·계열 max로 6,8…)와 분리합니다.
+     */
+    private Map<Long, Integer> buildCopyUserFacingVersionMap(Long sourceDocumentId) {
+        List<Document> copies = documentRepository.findBySourceDocument_IdOrderByCreatedAtAsc(sourceDocumentId);
+        Map<Long, Integer> map = new HashMap<>();
+        for (int i = 0; i < copies.size(); i++) {
+            map.put(copies.get(i).getId(), i + 2);
+        }
+        return map;
+    }
+
+    /**
      * 동일 원문(source) 계열(원문 + 모든 복사본)에서 최대 version_number + 1.
      */
     private int nextVersionNumberAfterFamilyMax(Long sourceId) {
@@ -868,26 +961,16 @@ public class DocumentService {
     }
 
     private DocumentResponse toResponse(Document document) {
+        Integer userFacingOverride = document.getSourceDocument() != null
+                ? buildCopyUserFacingVersionMap(document.getSourceDocument().getId()).get(document.getId())
+                : 1;
+        return toResponse(document, userFacingOverride);
+    }
+
+    private DocumentResponse toResponse(Document document, Integer userFacingVersionOverride) {
         // 버전 개수 조회
         long versionCount = documentVersionRepository.countByDocument_Id(document.getId());
         boolean hasVersions = versionCount > 0;
-        
-        Integer currentVersionNumber = null;
-        Boolean currentVersionIsFinal = null;
-        Integer userFacingVersionNumber = null;
-        if (document.getCurrentVersionId() != null) {
-            var currentVersionOpt = documentVersionRepository.findById(document.getCurrentVersionId());
-            if (currentVersionOpt.isPresent()) {
-                DocumentVersion cv = currentVersionOpt.get();
-                currentVersionNumber = cv.getVersionNumber();
-                currentVersionIsFinal = Boolean.TRUE.equals(cv.getIsFinal());
-                if ("ORIGINAL".equals(cv.getVersionType())) {
-                    userFacingVersionNumber = 1;
-                } else {
-                    userFacingVersionNumber = cv.getVersionNumber();
-                }
-            }
-        }
 
         // sourceDocumentId (원문 참조)
         Long sourceDocumentId = null;
@@ -917,9 +1000,6 @@ public class DocumentService {
                 .categoryId(document.getCategoryId())
                 .status(document.getStatus())
                 .currentVersionId(document.getCurrentVersionId())
-                .currentVersionNumber(currentVersionNumber)
-                .userFacingVersionNumber(userFacingVersionNumber)
-                .currentVersionIsFinal(currentVersionIsFinal)
                 .estimatedLength(document.getEstimatedLength())
                 .versionCount(versionCount)
                 .hasVersions(hasVersions)
@@ -944,6 +1024,8 @@ public class DocumentService {
                     .name(document.getLastModifiedBy().getName())
                     .build());
         }
+
+        applyVersionInfo(document, builder, userFacingVersionOverride);
 
         // 최신 인계 정보 추가
         Optional<HandoverHistory> latestHandover = handoverHistoryService.findLatestByDocumentId(document.getId());
@@ -1120,6 +1202,54 @@ public class DocumentService {
         source.setAdminSessionAt(null);
         documentRepository.save(source);
         log.info("관리자 번역 세션 종료: copyId={}, adminUserId={}", copyDocumentId, adminUserId);
+    }
+
+    /**
+     * 번역 완료: 버전 생성, 문서 상태·리뷰·작업 제출·관리자 세션 해제를 한 트랜잭션으로 처리합니다.
+     */
+    @Transactional
+    public DocumentVersionResponse completeTranslation(
+            Long documentId,
+            CompleteTranslationRequest request,
+            Long userId,
+            Integer roleLevel) {
+        assertVolunteerCanEditTranslation(documentId, userId, roleLevel);
+
+        CreateDocumentVersionRequest versionRequest = new CreateDocumentVersionRequest();
+        versionRequest.setVersionType("MANUAL_TRANSLATION");
+        versionRequest.setContent(request.getContent());
+        versionRequest.setIsFinal(false);
+        DocumentVersionResponse createdVersion =
+                documentVersionService.createVersion(documentId, versionRequest, userId);
+
+        UpdateDocumentRequest updateRequest = new UpdateDocumentRequest();
+        updateRequest.setStatus("PENDING_REVIEW");
+        updateRequest.setCompletedParagraphs(request.getCompletedParagraphs());
+        updateDocument(documentId, updateRequest, userId);
+
+        reviewService.ensurePendingReviewForDocument(documentId, createdVersion.getId());
+
+        markInProgressTranslationTasksSubmitted(documentId, userId);
+
+        clearAdminTranslationSessionIfEditingCopy(documentId);
+
+        return createdVersion;
+    }
+
+    private void markInProgressTranslationTasksSubmitted(Long documentId, Long userId) {
+        List<TranslationTask> inProgressTasks =
+                translationTaskRepository.findByDocument_IdAndStatus(documentId, "IN_PROGRESS");
+        LocalDateTime now = LocalDateTime.now();
+        for (TranslationTask task : inProgressTasks) {
+            if (task.getTranslator() == null || !task.getTranslator().getId().equals(userId)) {
+                continue;
+            }
+            task.setStatus("SUBMITTED");
+            task.setSubmittedAt(now);
+            task.setLastActivityAt(now);
+            translationTaskRepository.save(task);
+            log.info("번역 완료로 작업 제출 처리: taskId={}, documentId={}", task.getId(), documentId);
+        }
     }
 
     /**

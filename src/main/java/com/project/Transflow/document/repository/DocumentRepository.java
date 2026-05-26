@@ -36,6 +36,9 @@ public interface DocumentRepository extends JpaRepository<Document, Long> {
     /** 원문 문서 ID로 복사본 목록 조회 (다른 사람 작업물) */
     List<Document> findBySourceDocument_IdOrderByCreatedAtDesc(Long sourceDocumentId);
 
+    /** UI 표시용 v2,v3… 순번 계산 (생성 순) */
+    List<Document> findBySourceDocument_IdOrderByCreatedAtAsc(Long sourceDocumentId);
+
     /** 원문만 조회 (복사본 제외) - JOIN FETCH로 N+1 완화 */
     @Query("SELECT d FROM Document d LEFT JOIN FETCH d.createdBy LEFT JOIN FETCH d.lastModifiedBy WHERE d.sourceDocument IS NULL ORDER BY d.updatedAt DESC")
     List<Document> findSourceDocumentsWithUsers();
