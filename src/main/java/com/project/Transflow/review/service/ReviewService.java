@@ -105,12 +105,6 @@ public class ReviewService {
      */
     @Transactional
     public Optional<ReviewResponse> ensurePendingReviewForDocument(Long documentId, Long documentVersionId) {
-        Optional<Review> existingReview = reviewRepository
-                .findByDocument_IdAndDocumentVersion_Id(documentId, documentVersionId);
-        if (existingReview.isPresent()) {
-            return Optional.of(toResponse(existingReview.get()));
-        }
-
         Document document = documentRepository.findById(documentId)
                 .orElseThrow(() -> new IllegalArgumentException("문서를 찾을 수 없습니다: " + documentId));
 
@@ -119,6 +113,31 @@ public class ReviewService {
 
         if (!documentVersion.getDocument().getId().equals(documentId)) {
             throw new IllegalArgumentException("문서 버전이 해당 문서에 속하지 않습니다.");
+        }
+
+        Optional<Review> versionReview = reviewRepository
+                .findByDocument_IdAndDocumentVersion_Id(documentId, documentVersionId);
+        if (versionReview.isPresent()) {
+            Review existing = versionReview.get();
+            if ("PENDING".equals(existing.getStatus())) {
+                return Optional.of(toResponse(existing));
+            }
+            if ("REJECTED".equals(existing.getStatus())) {
+                Review reopened = reopenAsPendingReview(existing, documentVersion);
+                log.info("반려된 리뷰를 검토 대기로 재오픈: 문서 ID {}, 버전 ID {}", documentId, documentVersionId);
+                return Optional.of(toResponse(reopened));
+            }
+            return Optional.of(toResponse(existing));
+        }
+
+        List<Review> pendingReviews = reviewRepository.findByDocument_IdAndStatus(documentId, "PENDING");
+        if (!pendingReviews.isEmpty()) {
+            Review pending = pendingReviews.get(0);
+            pending.setDocumentVersion(documentVersion);
+            pending.setIsComplete(true);
+            Review saved = reviewRepository.save(pending);
+            log.info("기존 PENDING 리뷰 버전 갱신: 문서 ID {}, 버전 ID {}", documentId, documentVersionId);
+            return Optional.of(toResponse(saved));
         }
 
         Review review = Review.builder()
@@ -132,6 +151,16 @@ public class ReviewService {
         Review saved = reviewRepository.save(review);
         log.info("검토 대기 리뷰 자동 생성: 문서 ID {}, 버전 ID {}", documentId, documentVersionId);
         return Optional.of(toResponse(saved));
+    }
+
+    private Review reopenAsPendingReview(Review review, DocumentVersion documentVersion) {
+        review.setDocumentVersion(documentVersion);
+        review.setStatus("PENDING");
+        review.setReviewer(null);
+        review.setReviewedAt(null);
+        review.setFinalApprovalAt(null);
+        review.setIsComplete(true);
+        return reviewRepository.save(review);
     }
 
     /**
