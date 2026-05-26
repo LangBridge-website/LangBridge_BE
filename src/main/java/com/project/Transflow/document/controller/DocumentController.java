@@ -163,6 +163,40 @@ public class DocumentController {
     }
 
     @Operation(
+            summary = "인계 요청 문서 목록",
+            description = "handover_history가 있는 문서를 인계 시각 내림차순으로 반환합니다. "
+                    + "전체 문서 목록과 달리 URL 중복 제거를 하지 않습니다."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "조회 성공")
+    })
+    @GetMapping("/handovers")
+    public ResponseEntity<List<DocumentResponse>> getHandoverDocuments() {
+        return ResponseEntity.ok(documentService.findDocumentsWithHandover());
+    }
+
+    @Operation(
+            summary = "검토 대기 리뷰 보장",
+            description = "문서가 검토 대기인데 PENDING 리뷰가 없을 때 최신 수동 번역 버전 기준으로 생성·복구합니다."
+    )
+    @PostMapping("/{documentId}/ensure-pending-review")
+    public ResponseEntity<?> ensurePendingReview(
+            @Parameter(hidden = true) @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @PathVariable Long documentId) {
+        if (authHeader == null || authHeader.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        try {
+            return reviewService.ensurePendingReviewForLatestManualTranslation(documentId)
+                    .<ResponseEntity<?>>map(ResponseEntity::ok)
+                    .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                            "message", "수동 번역 버전이 없어 검토 대기 리뷰를 만들 수 없습니다.")));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
+        }
+    }
+
+    @Operation(
             summary = "원문별 번역 중(IN_TRANSLATION) 복사본 개수 배치 조회",
             description = "번역 대기 목록 인원 칸용. 복사본 전체 목록 없이 개수만 반환합니다."
     )
@@ -460,22 +494,19 @@ public class DocumentController {
         }
 
         Integer roleLevel = adminAuthUtil.getRoleLevelFromToken(authHeader);
-        documentService.assertVolunteerCanEditTranslation(documentId, userId, roleLevel);
-
-        CreateDocumentVersionRequest versionRequest = new CreateDocumentVersionRequest();
-        versionRequest.setVersionType("MANUAL_TRANSLATION");
-        versionRequest.setContent(request.getContent());
-        versionRequest.setIsFinal(false);
-        DocumentVersionResponse createdVersion = versionService.createVersion(documentId, versionRequest, userId);
-
-        UpdateDocumentRequest updateRequest = new UpdateDocumentRequest();
-        updateRequest.setStatus("PENDING_REVIEW");
-        updateRequest.setCompletedParagraphs(request.getCompletedParagraphs());
-        documentService.updateDocument(documentId, updateRequest, userId);
-
-        reviewService.ensurePendingReviewForDocument(documentId, createdVersion.getId());
-
-        documentService.clearAdminTranslationSessionIfEditingCopy(documentId);
+        try {
+            documentService.completeTranslation(documentId, request, userId, roleLevel);
+        } catch (org.springframework.dao.DataIntegrityViolationException e) {
+            log.error("번역 완료 DB 제약 위반: documentId={}", documentId, e);
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "success", false,
+                    "message", "번역 완료 처리 중 데이터 충돌이 발생했습니다. 관리자에게 문의하거나 잠시 후 다시 시도해주세요."));
+        } catch (Exception e) {
+            log.error("번역 완료 실패: documentId={}", documentId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+                    "success", false,
+                    "message", e.getMessage() != null ? e.getMessage() : "번역 완료 처리에 실패했습니다."));
+        }
 
         String documentTitle = documentService.findById(documentId)
                 .map(DocumentResponse::getTitle)

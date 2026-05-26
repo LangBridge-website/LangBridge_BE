@@ -14,8 +14,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -97,6 +101,27 @@ public class HandoverHistoryService {
     @Transactional(readOnly = true)
     public List<HandoverHistory> findAllByUserId(Long userId) {
         return handoverHistoryRepository.findByHandedOverBy_IdOrderByCreatedAtDesc(userId);
+    }
+
+    /**
+     * 인계 이력이 있는 문서 ID 목록 (문서당 최신 인계 1건 기준, 인계 시각 내림차순).
+     */
+    @Transactional(readOnly = true)
+    public List<Long> findDocumentIdsWithHandoverNewestFirst() {
+        List<HandoverHistory> histories =
+                handoverHistoryRepository.findAllWithDocumentAndHandedOverByOrderByCreatedAtDesc();
+        Set<Long> seen = new LinkedHashSet<>();
+        List<Long> documentIds = new ArrayList<>();
+        for (HandoverHistory history : histories) {
+            if (history.getDocument() == null) {
+                continue;
+            }
+            Long documentId = history.getDocument().getId();
+            if (seen.add(documentId)) {
+                documentIds.add(documentId);
+            }
+        }
+        return documentIds;
     }
 }
 

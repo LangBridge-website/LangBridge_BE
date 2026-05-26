@@ -2,6 +2,7 @@ package com.project.Transflow.document.repository;
 
 import com.project.Transflow.document.entity.HandoverHistory;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
 
 import java.util.List;
 import java.util.Optional;
@@ -25,5 +26,10 @@ public interface HandoverHistoryRepository extends JpaRepository<HandoverHistory
     List<HandoverHistory> findByHandedOverBy_IdOrderByCreatedAtDesc(Long userId);
 
     void deleteByDocument_Id(Long documentId);
+
+    /** 인계 시각 내림차순 (문서별 최신 인계 판별용) */
+    @Query("SELECT h FROM HandoverHistory h JOIN FETCH h.document LEFT JOIN FETCH h.handedOverBy "
+            + "ORDER BY h.createdAt DESC")
+    List<HandoverHistory> findAllWithDocumentAndHandedOverByOrderByCreatedAtDesc();
 }
 
