@@ -24,6 +24,12 @@ public interface ReviewRepository extends JpaRepository<Review, Long> {
     List<Review> findPendingWithVersionAuthorByDocumentId(@Param("documentId") Long documentId);
 
     List<Review> findByDocument_IdAndStatus(Long documentId, String status);
+
+    @Query("SELECT r FROM Review r WHERE r.document.id IN :documentIds AND r.status = :status")
+    List<Review> findByDocumentIdsAndStatus(
+            @Param("documentIds") List<Long> documentIds,
+            @Param("status") String status);
+
     Optional<Review> findByDocument_IdAndDocumentVersion_Id(Long documentId, Long documentVersionId);
 
     Optional<Review> findTopByDocument_IdAndStatusOrderByFinalApprovalAtDesc(Long documentId, String status);
