@@ -84,6 +84,8 @@ dependencies {
     
     // Netty native DNS resolver for MacOS (경고 제거)
     implementation 'io.netty:netty-resolver-dns-native-macos:4.1.100.Final:osx-aarch_64'
+
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
 }
 
 tasks.named('test') {
