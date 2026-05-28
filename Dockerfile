@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y \
     libgbm1 libasound2t64 libpangocairo-1.0-0 libatk1.0-0 \
     libatk-bridge2.0-0 libcups2 libdrm2 libnspr4 libnss3 \
     libxss1 libxfixes3 libxkbcommon0 fonts-noto-cjk \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 EXPOSE 8080
