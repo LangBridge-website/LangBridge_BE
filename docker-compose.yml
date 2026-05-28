@@ -16,6 +16,8 @@ services:
     networks:
       langbridge:
         ipv4_address: 10.10.120.11
+    volumes:
+      - playwright_cache:/root/.cache/ms-playwright
     restart: unless-stopped
 
   backend_green:
@@ -35,7 +37,12 @@ services:
     networks:
       langbridge:
         ipv4_address: 10.10.120.12
+    volumes:
+      - playwright_cache:/root/.cache/ms-playwright
     restart: unless-stopped
+
+volumes:
+  playwright_cache:
 
 networks:
   langbridge:
