@@ -220,7 +220,7 @@ creation-kr:
     IsotopeClock: 연대문제-동위원소시계
     BiblicalChronology: 연대문제-성경
     Dating: 연대문제-측정방법
-    
+
 management:
   endpoints:
     web:
@@ -229,3 +229,6 @@ management:
   endpoint:
     health:
       show-details: never
+  health:
+    mail:
+      enabled: false
