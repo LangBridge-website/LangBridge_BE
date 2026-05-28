@@ -57,8 +57,8 @@ public class SecurityConfig {
                         "/v3/api-docs/**",
                         // 로그인 콜백·실패만 공개 (/me, /logout 은 JWT 필요)
                         "/api/auth/login/**",
-                        "/api/translate/health"
-                        "/actuator/health"   // ← 추가
+                        "/api/translate/health",
+                        "/actuator/health" // ← 추가
                 ).permitAll()
                 .anyRequest().authenticated()
             .and()
