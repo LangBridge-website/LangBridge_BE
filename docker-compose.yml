@@ -1,16 +1,40 @@
-
 services:
-  backend:
-    container_name: langbridge-backend
+  backend_blue:
+    container_name: langbridge-backend-blue
     build:
       context: .
     env_file:
       - .env
     expose:
       - "8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     networks:
       langbridge:
-        ipv4_address: 10.10.120.10
+        ipv4_address: 10.10.120.11
+    restart: unless-stopped
+
+  backend_green:
+    container_name: langbridge-backend-green
+    build:
+      context: .
+    env_file:
+      - .env
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      langbridge:
+        ipv4_address: 10.10.120.12
     restart: unless-stopped
 
 networks:
